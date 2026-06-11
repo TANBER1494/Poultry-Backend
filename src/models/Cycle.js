@@ -8,12 +8,18 @@ const cycleSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    organization_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Organization',
+      required: [true, 'يجب ربط المزرعة بشركة (Organization)'],
+      index: true,
+    },
     barn_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Barn',
       required: true,
     },
-    supervisor_id: { 
+    supervisor_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
@@ -37,7 +43,8 @@ const cycleSchema = new mongoose.Schema(
       type: Date,
       required: [true, 'تاريخ استلام الكتاكيت/الطيور مطلوب'],
     },
-    end_date: { // تاريخ بيع وتصفية الدورة
+    end_date: {
+      // تاريخ بيع وتصفية الدورة
       type: Date,
       default: null,
     },
@@ -46,14 +53,15 @@ const cycleSchema = new mongoose.Schema(
       required: [true, 'العدد الابتدائي للطيور مطلوب'],
       min: 1,
     },
-    current_bird_count: { // يتم تحديثه تلقائياً كلما زاد النافق
+    current_bird_count: {
+      // يتم تحديثه تلقائياً كلما زاد النافق
       type: Number,
       required: true,
     },
     // 💰 ميزانية الدورة (تُحدث تلقائياً مع كل عملية مالية تخص هذه الدورة)
     total_expenses: { type: Number, default: 0 }, // تكلفة كتكوت، علف، أدوية، عمال
-    total_revenue: { type: Number, default: 0 },  // مبيعات لحم، بيض، سبلة
-    net_profit: { type: Number, default: 0 },     // صافي الربح (يُحسب عند الإغلاق)
+    total_revenue: { type: Number, default: 0 }, // مبيعات لحم، بيض، سبلة
+    net_profit: { type: Number, default: 0 }, // صافي الربح (يُحسب عند الإغلاق)
   },
   {
     timestamps: true,

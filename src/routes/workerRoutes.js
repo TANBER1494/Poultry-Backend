@@ -17,15 +17,15 @@ const { checkSubscription } = require('../middlewares/subscriptionMiddleware');
 router.use(protect);
 
 // تم منح الصلاحيات بالكامل للمشرف (SUPERVISOR) لإدارة العمال
-router.post('/', authorize('OWNER', 'SUPERVISOR'), checkSubscription, addWorker);
-router.put('/:worker_id/status', authorize('OWNER', 'SUPERVISOR'), checkSubscription, changeWorkerStatus);
+router.post('/', authorize('SUPERVISOR'), checkSubscription, addWorker);
+router.put('/:worker_id/status', authorize('SUPERVISOR'), checkSubscription, changeWorkerStatus);
 
 // مسارات المعاملات المالية للعمال وتصفية الرواتب
-router.post('/settle', authorize('OWNER', 'SUPERVISOR'), checkSubscription, settleWorkerAccount);
-router.get('/:worker_id/statement', authorize('OWNER', 'SUPERVISOR'), getWorkerStatement);
+router.post('/settle', authorize('SUPERVISOR'), checkSubscription, settleWorkerAccount);
+router.get('/:worker_id/statement', authorize('SUPERVISOR'), getWorkerStatement);
 
 // تسجيل اليومية (الاستحقاق اليومي للمقيمين)
-router.post('/logs', authorize('OWNER', 'SUPERVISOR'), checkSubscription, recordWorkerLog);
-router.get('/farm/:farm_id', authorize('OWNER', 'SUPERVISOR'), getWorkers);
+router.post('/logs', authorize('SUPERVISOR'), checkSubscription, recordWorkerLog);
+router.get('/farm/:farm_id', authorize('SUPERVISOR'), getWorkers);
 
 module.exports = router;

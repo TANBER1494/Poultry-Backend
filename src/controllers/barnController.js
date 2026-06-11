@@ -4,9 +4,11 @@ const Cycle = require('../models/Cycle');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
-// ==========================================
-// 1. إضافة عنبر جديد
-// ==========================================
+/**
+ * @desc    Create a new barn and associate it with the organization
+ * @route   POST /api/barns
+ * @access  Private (Owner, Supervisor)
+ */
 const addBarn = asyncHandler(async (req, res, next) => {
   const { farm_id, name, barn_type, capacity } = req.body;
   const orgId = req.user.organization_id;
@@ -15,19 +17,20 @@ const addBarn = asyncHandler(async (req, res, next) => {
     return next(new AppError('البيانات الأساسية للعنبر (المزرعة، الاسم، النوع، السعة) مطلوبة', 400));
   }
 
-  // 🛡️ حاجز أمني: التحقق من ملكية المزرعة
+  // Verify farm ownership before creating the barn
   const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
   if (!farm) {
     return next(new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403));
   }
 
-  // 🛡️ حاجز أمني: منع التكرار
+  // Check for duplicate barn name within the same farm
   const existingBarn = await Barn.findOne({ farm_id, name: name.trim(), deleted_at: null }).lean();
   if (existingBarn) {
     return next(new AppError('يوجد عنبر بهذا الاسم بالفعل داخل هذه المزرعة', 400));
   }
 
   const newBarn = await Barn.create({
+    organization_id: orgId, // Added for denormalization and query optimization
     farm_id,
     name: name.trim(),
     barn_type,
@@ -40,46 +43,40 @@ const addBarn = asyncHandler(async (req, res, next) => {
   });
 });
 
-// ==========================================
-// 2. جلب جميع العنابر لمزرعة معينة
-// ==========================================
+/**
+ * @desc    Get all active barns for a specific farm
+ * @route   GET /api/barns/farm/:farm_id
+ * @access  Private
+ */
 const getFarmBarns = asyncHandler(async (req, res, next) => {
   const { farm_id } = req.params;
   const orgId = req.user.organization_id;
 
-  // 🛡️ حاجز أمني: منع الوصول لبيانات مزارع الغير
-  const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
-  if (!farm) {
-    return next(new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403));
-  }
-
-  const barns = await Barn.find({ farm_id, deleted_at: null })
+  // Single optimized query leveraging the denormalized organization_id
+  const barns = await Barn.find({ farm_id, organization_id: orgId, deleted_at: null })
     .sort({ createdAt: -1 })
     .lean();
 
   res.status(200).json({ count: barns.length, barns });
 });
 
-// ==========================================
-// 3. تعديل بيانات العنبر
-// ==========================================
+/**
+ * @desc    Update barn details and handle referential integrity
+ * @route   PUT /api/barns/:id
+ * @access  Private
+ */
 const updateBarn = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
   const { name, barn_type, capacity, status } = req.body;
   const orgId = req.user.organization_id;
   
-  const barn = await Barn.findById(id);
+  // Single query for fetching and ownership validation
+  const barn = await Barn.findOne({ _id: id, organization_id: orgId });
   if (!barn || barn.deleted_at !== null) {
-    return next(new AppError('العنبر غير موجود', 404));
+    return next(new AppError('العنبر غير موجود أو لا تملك صلاحية تعديله', 404));
   }
 
-  // 🛡️ حاجز أمني: التحقق من الملكية
-  const farm = await Farm.findOne({ _id: barn.farm_id, organization_id: orgId }).lean();
-  if (!farm) {
-    return next(new AppError('لا تملك صلاحية التعديل على هذا العنبر', 403));
-  }
-
-  // 🛡️ حاجز أمني صارم: منع تغيير نوع العنبر إذا كان هناك ارتباطات مالية أو تشغيلية
+  // Prevent changing barn type if historical production cycles exist
   if (barn_type && barn_type !== barn.barn_type) {
     const hasCycles = await Cycle.exists({ barn_id: id });
     if (hasCycles) {
@@ -96,25 +93,22 @@ const updateBarn = asyncHandler(async (req, res, next) => {
   res.status(200).json({ message: 'تم تحديث بيانات العنبر بنجاح', barn });
 });
 
-// ==========================================
-// 4. الحذف النهائي للعنبر (مع حماية القيود المرجعية)
-// ==========================================
+/**
+ * @desc    Permanently delete a barn
+ * @route   DELETE /api/barns/:id
+ * @access  Private
+ */
 const deleteBarn = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
   const orgId = req.user.organization_id;
   
-  const barn = await Barn.findById(id);
+  // Single query for fetching and ownership validation
+  const barn = await Barn.findOne({ _id: id, organization_id: orgId });
   if (!barn) {
-    return next(new AppError('العنبر غير موجود', 404));
+    return next(new AppError('العنبر غير موجود أو لا تملك صلاحية حذفه', 404));
   }
 
-  // 🛡️ حاجز أمني: التحقق من الملكية
-  const farm = await Farm.findOne({ _id: barn.farm_id, organization_id: orgId }).lean();
-  if (!farm) {
-    return next(new AppError('لا تملك صلاحية حذف هذا العنبر', 403));
-  }
-
-  // 🛡️ حاجز أمني لحماية التكامل المرجعي (Referential Integrity)
+  // Referential Integrity Check
   const hasCycles = await Cycle.exists({ barn_id: id });
   if (hasCycles) {
      return next(new AppError('إجراء مرفوض: لا يمكن حذف العنبر نهائياً لوجود دورات إنتاج وحسابات مرتبطة به. يرجى تغيير حالته إلى (مغلق/INACTIVE) بدلاً من الحذف.', 400));

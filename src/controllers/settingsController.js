@@ -1,121 +1,75 @@
-const User = require('../models/User');
-const Farm = require('../models/Farm');
-const bcrypt = require('bcryptjs');
-
+const settingsService = require('../services/settingsService');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
-// ==========================================
-// 1. جلب جميع الإعدادات والتفضيلات الحالية للمستخدم
-// ==========================================
+/**
+ * @desc    Get user settings and preferences
+ * @route   GET /api/settings
+ * @access  Private
+ */
 const getSettings = asyncHandler(async (req, res, next) => {
-  const user = await User.findById(req.user._id)
-    .select('phone is_dark_mode notifications')
-    .lean();
-
-  if (!user) {
-    return next(new AppError('المستخدم غير موجود', 404));
-  }
-
-  res.status(200).json({
-    phone: user.phone,
-    is_dark_mode: user.is_dark_mode,
-    notifications: user.notifications,
-  });
+  const settings = await settingsService.getSettings(req.user._id);
+  res.status(200).json(settings);
 });
 
-// ==========================================
-// 2. تغيير رقم الهاتف الرئيسي للحساب
-// ==========================================
+/**
+ * @desc    Update user primary phone number
+ * @route   PUT /api/settings/phone
+ * @access  Private
+ */
 const updatePhone = asyncHandler(async (req, res, next) => {
   const { new_phone } = req.body;
 
-  // التحقق من صيغة رقم الهاتف (أرقام مصرية كمثال افتراضي)
-  if (!new_phone || !/^01[0125][0-9]{8}$/.test(new_phone)) {
-    return next(
-      new AppError('رقم الهاتف الجديد غير صحيح أو غير مطابق للمواصفات', 400)
-    );
+  const result = await settingsService.updatePhone(req.user._id, new_phone);
+
+  if (result.isSame) {
+    return res.status(200).json({
+      message: 'تم إدخال رقم الهاتف الحالي للمستخدم',
+      phone: result.phone,
+    });
   }
 
-  const user = await User.findById(req.user._id);
-  if (user.phone === new_phone) {
-    return res
-      .status(200)
-      .json({
-        message: 'تم إدخال رقم الهاتف الحالي للمستخدم',
-        phone: user.phone,
-      });
-  }
-
-  const existingUser = await User.exists({ phone: new_phone });
-  if (existingUser) {
-    return next(new AppError('هذا الرقم مسجل بحساب آخر في النظام', 400));
-  }
-
-  user.phone = new_phone;
-  await user.save();
-
-  res
-    .status(200)
-    .json({ message: 'تم تحديث رقم الهاتف بنجاح', phone: user.phone });
+  res.status(200).json({ 
+    message: 'تم تحديث رقم الهاتف بنجاح', 
+    phone: result.phone 
+  });
 });
 
-// ==========================================
-// 3. تغيير كلمة المرور لأغراض الأمان
-// ==========================================
+/**
+ * @desc    Update account password securely
+ * @route   PUT /api/settings/password
+ * @access  Private
+ */
 const updatePassword = asyncHandler(async (req, res, next) => {
   const { current_password, new_password, confirm_password } = req.body;
 
   if (!current_password || !new_password || !confirm_password) {
     return next(new AppError('جميع الحقول الخاصة بكلمة المرور مطلوبة', 400));
   }
+  
   if (new_password !== confirm_password) {
-    return next(
-      new AppError('كلمة المرور الجديدة غير متطابقة مع حقل التأكيد', 400)
-    );
-  }
-  if (new_password.length < 6) {
-    return next(
-      new AppError('يجب أن تتكون كلمة المرور من 6 أحرف كحد أدنى', 400)
-    );
+    return next(new AppError('كلمة المرور الجديدة غير متطابقة مع حقل التأكيد', 400));
   }
 
-  const user = await User.findById(req.user._id).select('+password_hash');
+  await settingsService.updatePassword(req.user._id, current_password, new_password);
 
-  const isMatch = await bcrypt.compare(current_password, user.password_hash);
-  if (!isMatch) {
-    return next(new AppError('كلمة المرور الحالية غير صحيحة', 401));
-  }
-
-  const salt = await bcrypt.genSalt(10);
-  user.password_hash = await bcrypt.hash(new_password, salt);
-  await user.save();
-
-  res.status(200).json({ message: 'تم تحديث كلمة المرور وحفظها بنجاح' });
+  // تم تغيير الرسالة لتنبيه الفرونت إند بأنه سيتم تسجيل الخروج
+  res.status(200).json({ 
+    message: 'تم تحديث كلمة المرور بنجاح. لأسباب أمنية، يرجى تسجيل الدخول مجدداً.' 
+  });
 });
 
-// ==========================================
-// 4. تحديث التفضيلات العامة وإعدادات الإشعارات
-// ==========================================
+/**
+ * @desc    Update UI preferences and notification settings
+ * @route   PUT /api/settings/preferences
+ * @access  Private
+ */
 const updatePreferences = asyncHandler(async (req, res, next) => {
-  const { is_dark_mode, notifications } = req.body;
-
-  const user = await User.findById(req.user._id);
-
-  if (is_dark_mode !== undefined) {
-    user.is_dark_mode = is_dark_mode;
-  }
-
-  if (notifications && typeof notifications === 'object') {
-    // دمج الإعدادات الجديدة للإشعارات مع الإعدادات الحالية لعدم فقدان البيانات
-    user.notifications = { ...user.notifications, ...notifications };
-  }
-
-  await user.save();
-
-  res
-    .status(200)
-    .json({ message: 'تم حفظ تفضيلات العرض وإعدادات الإشعارات بنجاح' });
+  await settingsService.updatePreferences(req.user._id, req.body);
+  
+  res.status(200).json({ 
+    message: 'تم حفظ تفضيلات العرض وإعدادات الإشعارات بنجاح' 
+  });
 });
 
 module.exports = {

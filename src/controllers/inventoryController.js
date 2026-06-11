@@ -1,26 +1,30 @@
-const mongoose = require('mongoose');
 const InventoryItem = require('../models/InventoryItem');
 const InventoryMovement = require('../models/InventoryMovement');
-const Cycle = require('../models/Cycle');
 const Farm = require('../models/Farm');
+const inventoryService = require('../services/inventoryService');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
-// ==========================================
-// إدارة كروت الأصناف (Inventory Items)
-// ==========================================
-
-/*
- * إضافة صنف جديد للمخزن (علف، دواء، تحصين)
+/**
+ * @desc    Create a new inventory item card
+ * @route   POST /api/inventory/items
+ * @access  Private
  */
 const addInventoryItem = asyncHandler(async (req, res, next) => {
   const { farm_id, name, category, unit, min_alert_level } = req.body;
+  const orgId = req.user.organization_id;
 
   if (!farm_id || !name || !category || !unit) {
     return next(new AppError('البيانات الأساسية للصنف مطلوبة (المزرعة، الاسم، التصنيف، الوحدة)', 400));
   }
 
-  const existingItem = await InventoryItem.findOne({ farm_id, name: name.trim() }).lean();
+  // سد ثغرة IDOR
+  const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
+  if (!farm) {
+    return next(new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403));
+  }
+
+  const existingItem = await InventoryItem.findOne({ farm_id, name: name.trim(), deleted_at: null }).lean();
   if (existingItem) {
     return next(new AppError('هذا الصنف مسجل بالفعل في مخزن المزرعة', 400));
   }
@@ -39,11 +43,20 @@ const addInventoryItem = asyncHandler(async (req, res, next) => {
   });
 });
 
-/*
- * جلب جميع الأصناف الموجودة في مخزن مزرعة معينة
+/**
+ * @desc    Get all active inventory items for a specific farm
+ * @route   GET /api/inventory/items/farm/:farm_id
+ * @access  Private
  */
 const getInventoryItems = asyncHandler(async (req, res, next) => {
   const { farm_id } = req.params;
+  const orgId = req.user.organization_id;
+
+  // سد ثغرة IDOR
+  const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
+  if (!farm) {
+    return next(new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403));
+  }
 
   const items = await InventoryItem.find({ farm_id, deleted_at: null })
     .sort({ category: 1, name: 1 })
@@ -52,116 +65,49 @@ const getInventoryItems = asyncHandler(async (req, res, next) => {
   res.status(200).json({ count: items.length, items });
 });
 
-// ==========================================
-// حركات المخزن (Inventory Movements)
-// ==========================================
-
-/*
- * تسجيل حركة مخزنية (وارد، منصرف، إنتاج)
- * هذه الدالة محصنة بمعاملات (ACID Transactions) لضمان عدم ضياع التكلفة
+/**
+ * @desc    Record an inventory movement (In/Out/Adjustment)
+ * @route   POST /api/inventory/movements
+ * @access  Private
  */
 const recordInventoryMovement = asyncHandler(async (req, res, next) => {
-  const { 
-    local_id, farm_id, item_id, movement_type, 
-    quantity, unit_cost_at_time, movement_date, 
-    cycle_id, source_farm_id, reference_doc 
-  } = req.body;
+  const { local_id, farm_id, item_id, movement_type, quantity, unit_cost_at_time, movement_date } = req.body;
 
   if (!local_id || !farm_id || !item_id || !movement_type || !quantity || !unit_cost_at_time || !movement_date) {
     return next(new AppError('البيانات الأساسية للحركة المخزنية غير مكتملة', 400));
   }
 
-  // منع تكرار العملية في وضع الاوفلاين
-  const existingMovement = await InventoryMovement.findOne({ local_id }).lean();
-  if (existingMovement) {
-    return res.status(200).json({ message: 'الحركة مسجلة مسبقاً', movement: existingMovement });
+  const result = await inventoryService.recordMovement(req.body, req.user._id, req.user.organization_id);
+
+  if (result.isDuplicate) {
+    return res.status(200).json({ message: 'الحركة مسجلة مسبقاً', movement: result.movement });
   }
 
-  const numericQuantity = Number(quantity);
-  const numericCost = Number(unit_cost_at_time);
-  const totalValue = numericQuantity * numericCost;
-
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    // 1. التحقق من وجود الصنف في المخزن
-    const item = await InventoryItem.findById(item_id).session(session);
-    if (!item) {
-      throw new AppError('الصنف غير موجود في قاعدة البيانات', 404);
-    }
-
-    // 2. تحديث رصيد الصنف بناءً على نوع الحركة
-    let newStockQuantity = item.stock_quantity;
-    
-    if (['PURCHASE', 'TRANSFER_IN', 'PRODUCTION', 'RETURN'].includes(movement_type)) {
-      // وارد للمخزن
-      newStockQuantity += numericQuantity;
-      
-      // تحديث متوسط التكلفة المرجح (Weighted Average Cost)
-      const currentTotalValue = item.stock_quantity * item.average_unit_cost;
-      const newTotalValue = currentTotalValue + totalValue;
-      item.average_unit_cost = newStockQuantity > 0 ? (newTotalValue / newStockQuantity) : 0;
-      
-    } else if (['CONSUMPTION', 'ADJUSTMENT'].includes(movement_type)) {
-      // منصرف من المخزن
-      if (item.stock_quantity < numericQuantity) {
-        throw new AppError(`الرصيد الحالي للصنف (${item.name}) لا يكفي لهذه العملية`, 400);
-      }
-      newStockQuantity -= numericQuantity;
-    }
-
-    item.stock_quantity = newStockQuantity;
-    await item.save({ session });
-
-    // 3. تحميل التكلفة على الدورة (في حالة المنصرف للاستهلاك)
-    if (movement_type === 'CONSUMPTION' && cycle_id) {
-      const cycle = await Cycle.findById(cycle_id).session(session);
-      if (!cycle) {
-        throw new AppError('الدورة المحددة للاستهلاك غير موجودة', 404);
-      }
-      cycle.total_expenses += totalValue;
-      await cycle.save({ session });
-    }
-
-    // 4. تسجيل الحركة في دفتر المخازن
-    const [movement] = await InventoryMovement.create([{
-      local_id,
-      farm_id,
-      item_id,
-      cycle_id: cycle_id || null,
-      performed_by: req.user._id,
-      movement_type,
-      source_farm_id: source_farm_id || null,
-      quantity: numericQuantity,
-      unit_cost_at_time: numericCost,
-      total_value: totalValue,
-      movement_date: new Date(movement_date),
-      reference_doc: reference_doc || ''
-    }], { session });
-
-    // 5. اعتماد المعاملة
-    await session.commitTransaction();
-    session.endSession();
-
-    res.status(201).json({
-      message: 'تم تسجيل الحركة وتحديث الأرصدة بنجاح',
-      movement
-    });
-  } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    // تمرير الخطأ إذا كان من النوع المخصص، وإلا إرسال خطأ عام
-    if (error.isOperational) return next(error);
-    return next(new AppError('فشل في تسجيل الحركة المخزنية، تم التراجع لحماية البيانات', 500));
-  }
+  res.status(201).json({
+    message: 'تم تسجيل الحركة وتحديث الأرصدة بنجاح',
+    movement: result.movement
+  });
 });
 
-/*
- * جلب تقرير حركات صنف معين (دفتر الأستاذ للصنف)
+/**
+ * @desc    Get movement history (Ledger) for a specific item
+ * @route   GET /api/inventory/movements/item/:item_id
+ * @access  Private
  */
 const getItemMovements = asyncHandler(async (req, res, next) => {
   const { item_id } = req.params;
+  const orgId = req.user.organization_id;
+
+  // التحقق من أن الصنف يتبع لمزرعة يملكها المستخدم لسد ثغرة IDOR
+  const item = await InventoryItem.findById(item_id).lean();
+  if (!item) {
+    return next(new AppError('الصنف غير موجود', 404));
+  }
+
+  const farm = await Farm.findOne({ _id: item.farm_id, organization_id: orgId }).lean();
+  if (!farm) {
+    return next(new AppError('لا تملك صلاحية الوصول لبيانات هذا الصنف', 403));
+  }
 
   const movements = await InventoryMovement.find({ item_id })
     .populate('performed_by', 'name role')

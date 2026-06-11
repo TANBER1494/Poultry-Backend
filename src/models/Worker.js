@@ -30,7 +30,7 @@ const workerSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['ACTIVE', 'ON_LEAVE', 'TERMINATED'], // شغال، نزل إجازة، اتفصل/مشي
+      enum: ['ACTIVE', 'ON_LEAVE', 'TERMINATED'], 
       default: 'ACTIVE',
     },
     hiring_date: {

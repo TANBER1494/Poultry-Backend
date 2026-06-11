@@ -1,39 +1,20 @@
-const User = require('../models/User');
-const Farm = require('../models/Farm');
-const bcrypt = require('bcryptjs');
+const supervisorService = require('../services/supervisorService');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
-// ==========================================
-// 1. إضافة مشرف جديد للمزرعة (صلاحية المالك)
-// ==========================================
+/**
+ * @desc    Add a new supervisor to a farm
+ * @route   POST /api/supervisors
+ * @access  Private (Owner)
+ */
 const addSupervisor = asyncHandler(async (req, res, next) => {
   const { name, phone, password, farm_id } = req.body;
-  const orgId = req.user.organization_id;
 
   if (!name || !phone || !password || !farm_id) {
     return next(new AppError('جميع بيانات المشرف مطلوبة (الاسم، الهاتف، كلمة المرور، المزرعة)', 400));
   }
 
-  // التحقق من ملكية المزرعة
-  const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
-  if (!farm) return next(new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403));
-
-  const existingUser = await User.findOne({ phone }).lean();
-  if (existingUser) return next(new AppError('رقم الهاتف مسجل بالفعل في النظام', 400));
-
-  const salt = await bcrypt.genSalt(10);
-  const password_hash = await bcrypt.hash(password, salt);
-
-  const newSupervisor = await User.create({
-    organization_id: orgId,
-    farm_id,
-    name: name.trim(),
-    role: 'SUPERVISOR',
-    phone: phone.trim(),
-    password_hash,
-    status: 'ACTIVE'
-  });
+  const newSupervisor = await supervisorService.createSupervisor(req.body, req.user.organization_id);
 
   res.status(201).json({
     message: 'تم إضافة حساب المشرف بنجاح، يمكنه الآن تسجيل الدخول',
@@ -41,21 +22,43 @@ const addSupervisor = asyncHandler(async (req, res, next) => {
   });
 });
 
-// ==========================================
-// 2. جلب مشرفي المزرعة
-// ==========================================
+/**
+ * @desc    Get all supervisors for a specific farm
+ * @route   GET /api/supervisors/farm/:farm_id
+ * @access  Private (Owner)
+ */
 const getSupervisors = asyncHandler(async (req, res, next) => {
-  const { farm_id } = req.params;
-  const orgId = req.user.organization_id;
-
-  const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
-  if (!farm) return next(new AppError('المزرعة غير موجودة', 403));
-
-  const supervisors = await User.find({ farm_id, role: 'SUPERVISOR', deleted_at: null })
-    .select('name phone status hiring_date')
-    .sort({ createdAt: -1 }).lean();
-
+  const supervisors = await supervisorService.getSupervisors(req.params.farm_id, req.user.organization_id);
   res.status(200).json({ count: supervisors.length, supervisors });
 });
 
-module.exports = { addSupervisor, getSupervisors };
+/**
+ * @desc    Update supervisor details or status (e.g., Suspend)
+ * @route   PUT /api/supervisors/:id
+ * @access  Private (Owner)
+ */
+const updateSupervisor = asyncHandler(async (req, res, next) => {
+  const supervisor = await supervisorService.updateSupervisor(req.params.id, req.user.organization_id, req.body);
+  
+  res.status(200).json({ 
+    message: 'تم تحديث بيانات المشرف بنجاح', 
+    supervisor: { id: supervisor._id, name: supervisor.name, status: supervisor.status } 
+  });
+});
+
+/**
+ * @desc    Soft delete a supervisor (Fire/Remove)
+ * @route   DELETE /api/supervisors/:id
+ * @access  Private (Owner)
+ */
+const deleteSupervisor = asyncHandler(async (req, res, next) => {
+  await supervisorService.deleteSupervisor(req.params.id, req.user.organization_id);
+  res.status(200).json({ message: 'تم حذف حساب المشرف من النظام بنجاح' });
+});
+
+module.exports = { 
+  addSupervisor, 
+  getSupervisors,
+  updateSupervisor,
+  deleteSupervisor
+};

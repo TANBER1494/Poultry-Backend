@@ -8,6 +8,12 @@ const merchantSchema = new mongoose.Schema(
       required: [true, 'يجب ربط التاجر بمزرعة'],
       index: true,
     },
+    organization_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Organization',
+      required: [true, 'يجب ربط المزرعة بشركة (Organization)'],
+      index: true,
+    },
     name: {
       type: String,
       required: [true, 'اسم التاجر أو الشركة مطلوب'],
@@ -16,13 +22,13 @@ const merchantSchema = new mongoose.Schema(
     merchant_type: {
       type: String,
       enum: [
-        'FEED_SUPPLIER',   // مورد علف
-        'CHICK_SUPPLIER',  // مورد كتاكيت
-        'MED_SUPPLIER',    // مورد أدوية وتحصينات
-        'EGG_BUYER',       // تاجر بيض (عميل)
-        'MEAT_BUYER',      // تاجر لحم فراخ (عميل)
-        'MANURE_BUYER',    // تاجر سبلة (عميل)
-        'GENERAL'          // عام
+        'FEED_SUPPLIER', // مورد علف
+        'CHICK_SUPPLIER', // مورد كتاكيت
+        'MED_SUPPLIER', // مورد أدوية وتحصينات
+        'EGG_BUYER', // تاجر بيض (عميل)
+        'MEAT_BUYER', // تاجر لحم فراخ (عميل)
+        'MANURE_BUYER', // تاجر سبلة (عميل)
+        'GENERAL', // عام
       ],
       required: true,
     },
@@ -38,7 +44,7 @@ const merchantSchema = new mongoose.Schema(
     },
     opening_balance: {
       type: Number,
-      default: 0, 
+      default: 0,
       // موجب = التاجر مدين لنا (عليه فلوس) | سالب = التاجر دائن (ليه فلوس)
     },
     status: {
@@ -51,6 +57,9 @@ const merchantSchema = new mongoose.Schema(
 );
 
 // فهرس لمنع تسجيل نفس التاجر بنفس النشاط مرتين في نفس المزرعة
-merchantSchema.index({ farm_id: 1, name: 1, merchant_type: 1 }, { unique: true });
+merchantSchema.index(
+  { farm_id: 1, name: 1, merchant_type: 1 },
+  { unique: true }
+);
 
 module.exports = mongoose.model('Merchant', merchantSchema);

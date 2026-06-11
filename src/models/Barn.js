@@ -8,12 +8,18 @@ const barnSchema = new mongoose.Schema(
       required: [true, 'يجب ربط العنبر بمزرعة'],
       index: true,
     },
+    organization_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Organization',
+      required: [true, 'يجب ربط المزرعة بشركة (Organization)'],
+      index: true,
+    },
     name: {
       type: String,
       required: [true, 'اسم أو رقم العنبر مطلوب (مثال: عنبر 1)'],
       trim: true,
     },
-    barn_type: { 
+    barn_type: {
       type: String,
       enum: ['BROILER', 'LAYER', 'BREEDER'], // تسمين، بياض، أمهات
       required: [true, 'يجب تحديد نوع نشاط العنبر'],

@@ -14,9 +14,9 @@ const { checkSubscription } = require('../middlewares/subscriptionMiddleware');
 router.use(protect);
 
 // مسار تسجيل اليومية (متاح للمشرف والمالك + يتطلب اشتراك فعال لضمان حفظ البيانات)
-router.post('/', authorize('OWNER', 'SUPERVISOR'), checkSubscription, createDailyLog);
+router.post('/', authorize( 'SUPERVISOR'), checkSubscription, createDailyLog);
 
 // مسار عرض أرشيف اليوميات لدورة معينة
-router.get('/cycle/:cycle_id', authorize('OWNER', 'SUPERVISOR'), getCycleDailyLogs);
+router.get('/cycle/:cycle_id', authorize('SUPERVISOR'), getCycleDailyLogs);
 
 module.exports = router;
