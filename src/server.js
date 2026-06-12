@@ -8,7 +8,7 @@ const hpp = require('hpp');
 const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/db');
 
-// 🚀 استدعاء ملفات الـ Routes للمزارع الدواجن
+//  استدعاء ملفات الـ Routes للمزارع الدواجن
 const authRoutes = require('./routes/authRoutes');
 const farmRoutes = require('./routes/farmRoutes');
 const barnRoutes = require('./routes/barnRoutes');
@@ -31,7 +31,7 @@ const app = express();
 connectDB();
 
 // ==========================================
-// 🛡️ طبقات الحماية والأمن (Security Middlewares)
+//  طبقات الحماية والأمن (Security Middlewares)
 // ==========================================
 app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 
@@ -69,8 +69,8 @@ const loginLimiter = rateLimit({
 });
 app.use('/api/auth/login', loginLimiter);
 
-app.use(express.json({ limit: '50mb' })); 
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '100kb' })); 
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
 app.use(hpp()); 
 
@@ -86,7 +86,7 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // ==========================================
-// 🌐 توجيه المسارات (API Routes)
+//  توجيه المسارات (API Routes)
 // ==========================================
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'success', message: 'Poultry Farm ERP API is running securely!' });
@@ -109,7 +109,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/supervisors', supervisorRoutes);
 // ==========================================
-// 🚀 معالجة الأخطاء الشاملة (Global Error Handling)
+//  معالجة الأخطاء الشاملة (Global Error Handling)
 // ==========================================
 app.use((err, req, res, next) => {
   err.statusCode = err.statusCode || 500;
@@ -132,7 +132,7 @@ app.use((err, req, res, next) => {
 });
 
 // ==========================================
-// 🚀 تشغيل السيرفر وتفعيل (Socket.io)
+//  تشغيل السيرفر وتفعيل (Socket.io)
 // ==========================================
 const http = require('http');
 const socket = require('./models/socket'); 
@@ -142,11 +142,21 @@ const server = http.createServer(app);
 const io = socket.init(server);
 
 io.on('connection', (socket) => {
-  console.log(`🔌 Client connected: ${socket.id}`);
-  socket.on('joinRoom', (room) => {
-    socket.join(room);
-    console.log(`🏠 Socket ${socket.id} joined room: ${room}`);
-  });
+  const user = socket.user; // تم حقن هذا الكائن من ميدلوير الـ socket.js
+  console.log(`🔌 Client connected securely: ${socket.id} | Role: ${user.role}`);
+
+  // توجيه إجباري وآمن للغرف بناءً على الصلاحيات (الباك إند هو من يتحكم)
+  if (user.role === 'SUPER_ADMIN') {
+    socket.join('SUPER_ADMIN_ROOM');
+    console.log(` Super Admin joined global room`);
+  } else if (user.role === 'OWNER') {
+    socket.join(user.organization_id.toString());
+    console.log(` Owner joined organization room: ${user.organization_id}`);
+  } else if (user.role === 'SUPERVISOR') {
+    socket.join(user._id.toString()); 
+    console.log(` Supervisor joined personal room: ${user._id}`);
+  }
+
   socket.on('disconnect', () => {
     console.log(`❌ Client disconnected: ${socket.id}`);
   });

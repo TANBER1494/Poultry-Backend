@@ -27,7 +27,8 @@ class InvoiceService {
     const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
     if (!farm) throw new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول', 403);
 
-    const merchant = await Merchant.findOne({ _id: merchant_id, farm_id }).lean();
+    //  الترقية المعمارية: الاستفادة من orgId في البحث لضمان أمان الـ IDOR للتاجر
+    const merchant = await Merchant.findOne({ _id: merchant_id, farm_id, organization_id: orgId }).lean();
     if (!merchant) throw new AppError('التاجر أو المورد المختار غير موجود في هذه المزرعة', 404);
 
     if (numericPaid > 0 && !transaction_category) {
@@ -42,7 +43,7 @@ class InvoiceService {
 
     try {
       const [newInvoice] = await Invoice.create([{
-        organization_id: orgId, // Denormalization logic
+        organization_id: orgId, 
         local_id,
         farm_id,
         merchant_id,
@@ -62,8 +63,10 @@ class InvoiceService {
       if (numericPaid > 0) {
         const transactionType = ['PURCHASE', 'RETURN_SALE'].includes(invoice_type) ? 'OUT' : 'IN';
 
+        //  الترقية المعمارية: إصلاح اللغم البرمجي بتمرير organization_id للخزينة
         await Transaction.create([{
           local_id: `${local_id}_PAYMENT`,
+          organization_id: orgId, 
           farm_id,
           cycle_id: cycle_id || null,
           merchant_id,
@@ -95,7 +98,8 @@ class InvoiceService {
     const farm = await Farm.findOne({ _id: farmId, organization_id: orgId }).lean();
     if (!farm) throw new AppError('المزرعة غير موجودة', 403);
 
-    const query = { farm_id: farmId };
+    //  الترقية المعمارية: دمج orgId في استعلام البحث لزيادة الأمان
+    const query = { farm_id: farmId, organization_id: orgId };
     if (filters.merchant_id) query.merchant_id = filters.merchant_id;
     if (filters.invoice_type) query.invoice_type = filters.invoice_type;
     if (filters.payment_status) query.payment_status = filters.payment_status;
@@ -118,18 +122,16 @@ class InvoiceService {
    * جلب تفاصيل الفاتورة مع حركات الخزينة المرتبطة بها
    */
   async getInvoiceDetails(invoiceId, orgId) {
-    const invoice = await Invoice.findById(invoiceId)
+    //  الترقية المعمارية: استعلام O(1) بدلاً من استعلامين متسلسلين
+    const invoice = await Invoice.findOne({ _id: invoiceId, organization_id: orgId })
       .populate('merchant_id', 'name merchant_type')
       .populate('created_by', 'name')
       .populate('cycle_id', 'name')
       .lean();
 
-    if (!invoice) throw new AppError('الفاتورة غير موجودة', 404);
+    if (!invoice) throw new AppError('الفاتورة غير موجودة أو غير مصرح لك باستعراضها', 404);
 
-    const farm = await Farm.findOne({ _id: invoice.farm_id, organization_id: orgId }).lean();
-    if (!farm) throw new AppError('غير مصرح لك باستعراض هذه الفاتورة', 403);
-
-    const payments = await Transaction.find({ invoice_id: invoiceId })
+    const payments = await Transaction.find({ invoice_id: invoiceId, organization_id: orgId })
       .select('amount type transaction_date performed_by reference_doc')
       .populate('performed_by', 'name')
       .sort({ transaction_date: -1 })
@@ -142,11 +144,9 @@ class InvoiceService {
    * حذف الفاتورة مع تطبيق قواعد الحماية المحاسبية
    */
   async deleteInvoice(invoiceId, orgId) {
-    const invoice = await Invoice.findById(invoiceId);
-    if (!invoice) throw new AppError('الفاتورة غير موجودة', 404);
-
-    const farm = await Farm.findOne({ _id: invoice.farm_id, organization_id: orgId }).lean();
-    if (!farm) throw new AppError('لا تملك صلاحية حذف هذه الفاتورة', 403);
+    //  الترقية المعمارية: استعلام التحقق والملكية في خطوة واحدة
+    const invoice = await Invoice.findOne({ _id: invoiceId, organization_id: orgId });
+    if (!invoice) throw new AppError('الفاتورة غير موجودة أو لا تملك صلاحية حذفها', 404);
 
     // القاعدة المحاسبية: يمنع حذف فاتورة بها حركات مالية
     if (invoice.paid_amount > 0) {

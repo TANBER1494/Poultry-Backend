@@ -28,21 +28,15 @@ class CycleService {
       throw new AppError(`تجاوز خطير للسعة: العنبر يستوعب ${barn.capacity} طائر كحد أقصى`, 400);
     }
 
-    const existingActiveCycle = await Cycle.findOne({
-      barn_id,
-      status: { $in: ['PREPARATION', 'ACTIVE'] }
-    }).lean();
-
-    if (existingActiveCycle) {
-      throw new AppError('العنبر مشغول حالياً بدورة إنتاج نشطة', 400);
-    }
+    // 🛡️ التطوير المعماري: تم إزالة الاستعلام المكرر (existingActiveCycle) 
+    // محرك MongoDB سيتصدى لأي تداخل بفضل الفهرس الفريد الذي أنشأناه سابقاً
 
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
       const [newCycle] = await Cycle.create([{
-        organization_id: orgId, // Denormalization for faster queries
+        organization_id: orgId, 
         farm_id,
         barn_id,
         supervisor_id,
@@ -64,7 +58,11 @@ class CycleService {
       return newCycle;
     } catch (error) {
       await session.abortTransaction();
-      throw new AppError('فشل في تسجيل الدورة بسبب خطأ في قاعدة البيانات', 500);
+      // التقاط خطأ التداخل المباشر من الداتا بيز
+      if (error.code === 11000) {
+        throw new AppError('هذا العنبر مشغول حالياً بدورة إنتاج نشطة أو قيد التجهيز', 400);
+      }
+      throw new AppError('فشل في تسجيل الدورة بسبب خطأ داخلي', 500);
     } finally {
       session.endSession();
     }
@@ -101,7 +99,7 @@ class CycleService {
   }
 
   /**
-   * @desc تنفيذ عملية بيع مع حماية صارمة ضد التزامن (Race Conditions)
+   * @desc تنفيذ عملية بيع مع حماية صارمة ضد التزامن وإصلاح القيود المرجعية
    */
   async sellBirds(cycleId, saleData, orgId, userId) {
     const { local_id, merchant_id, birds_sold_count, total_weight_kg, price_per_kg, paid_amount, transaction_date, notes } = saleData;
@@ -123,13 +121,13 @@ class CycleService {
       const merchant = await Merchant.findOne({ _id: merchant_id, organization_id: orgId }).lean();
       if (!merchant) throw new AppError('التاجر غير موجود', 404);
 
-      // التحديث الذري (Atomic Update) لمنع ثغرات التزامن
+      // التحديث الذري (Atomic Update) - ممتاز جداً في الكود الأصلي ومطابق لمعاييرنا
       const cycle = await Cycle.findOneAndUpdate(
         { 
           _id: cycleId, 
           organization_id: orgId, 
           status: 'ACTIVE',
-          current_bird_count: { $gte: numericBirds } // الشرط الأهم: التأكد من توفر العدد قبل الخصم
+          current_bird_count: { $gte: numericBirds } 
         },
         { 
           $inc: { 
@@ -147,8 +145,10 @@ class CycleService {
       const remainingAmount = totalInvoiceAmount - numericPaid;
       const paymentStatus = numericPaid === 0 ? 'UNPAID' : (remainingAmount === 0 ? 'PAID' : 'PARTIAL');
 
+      // 🛡️ التطوير المعماري: تم تمرير organization_id لضمان عدم فشل الحفظ وتوافق النظام المالي
       const [newInvoice] = await Invoice.create([{
         local_id: `${local_id}_INV`,
+        organization_id: orgId, 
         farm_id: cycle.farm_id,
         merchant_id,
         cycle_id: cycle._id,
@@ -171,6 +171,7 @@ class CycleService {
       if (numericPaid > 0) {
         await Transaction.create([{
           local_id: `${local_id}_PAY`,
+          organization_id: orgId, // 🛡️ تم إضافته لضمان التوافق
           farm_id: cycle.farm_id,
           cycle_id: cycle._id,
           merchant_id,

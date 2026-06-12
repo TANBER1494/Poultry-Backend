@@ -1,43 +1,38 @@
+const mongoose = require('mongoose');
 const Farm = require('../models/Farm');
 const Cycle = require('../models/Cycle');
 const InventoryItem = require('../models/InventoryItem');
 const Invoice = require('../models/Invoice');
 
 class DashboardService {
-  /**
-   * Calculate remaining days for a subscription
-   * @param {Date} targetDate 
-   * @returns {Number}
-   */
   _calculateDaysLeft(targetDate) {
     if (!targetDate) return 0;
     const diffInDays = Math.ceil((new Date(targetDate) - new Date()) / (1000 * 60 * 60 * 24));
     return diffInDays > 0 ? diffInDays : 0;
   }
 
-  /**
-   * Build the Master Dashboard for the organization owner
-   * @param {String} orgId 
-   * @returns {Object} Grand totals and per-farm data
-   */
   async getMasterDashboard(orgId) {
+    // تحويل الـ String إلى ObjectId لاستخدامه بشكل صحيح داخل الـ Aggregation Pipeline
+    const orgObjectId = new mongoose.Types.ObjectId(orgId);
+
     const farms = await Farm.find({ organization_id: orgId }).lean();
     if (!farms || farms.length === 0) {
       return { grand_totals: { total_debts_for_us: 0, total_debts_on_us: 0 }, farms: [] };
     }
 
-    const farmIds = farms.map((f) => f._id);
-
-    // 1. Parallel execution of optimized Database queries (Aggregation instead of fetching all documents)
+    //  الترقية المعمارية 1: استبدال ($in: farmIds) البطيء بالبحث المباشر بـ (organization_id)
     const [activeCycles, debtsAggregation, lowStockAggregation] = await Promise.all([
-      // Fetch only necessary fields for active cycles
-      Cycle.find({ farm_id: { $in: farmIds }, status: 'ACTIVE' })
+      Cycle.find({ organization_id: orgId, status: 'ACTIVE' })
         .select('farm_id name current_bird_count type')
         .lean(),
 
-      // Aggregation: Sum debts directly in MongoDB (Zero memory overhead on Node.js)
       Invoice.aggregate([
-        { $match: { farm_id: { $in: farmIds }, payment_status: { $ne: 'PAID' } } },
+        { 
+          $match: { 
+            organization_id: orgObjectId, // استخدام الفهرس المباشر
+            payment_status: { $ne: 'PAID' } 
+          } 
+        },
         {
           $group: {
             _id: '$farm_id',
@@ -51,11 +46,11 @@ class DashboardService {
         }
       ]),
 
-      // Aggregation: Count low stock items directly in MongoDB
       InventoryItem.aggregate([
         { 
           $match: { 
-            farm_id: { $in: farmIds }, 
+            organization_id: orgObjectId,
+            deleted_at: null, // 🛡️ الترقية المعمارية 2: استبعاد الأصناف المحذوفة نهائياً
             min_alert_level: { $gt: 0 }, 
             $expr: { $lte: ['$stock_quantity', '$min_alert_level'] } 
           } 

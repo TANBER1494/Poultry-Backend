@@ -8,10 +8,17 @@ const dailyLogSchema = new mongoose.Schema(
       unique: true, 
       index: true,
     },
+    //  التطوير المعماري: إضافة الحقل لدعم استعلامات المؤسسة (يُنصح بتمريره لاحقاً في الـ Controller)
+    organization_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Organization',
+      index: true,
+    },
     farm_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Farm',
       required: true,
+      index: true,
     },
     barn_id: {
       type: mongoose.Schema.Types.ObjectId,
@@ -28,36 +35,26 @@ const dailyLogSchema = new mongoose.Schema(
     recorded_by: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true, // المشرف اللي كتب التقرير
+      required: true,
     },
     log_date: { 
       type: Date,
       required: true,
     },
-    age_in_days: { // 🚀 (العمر) بيزيد تدريجي زي ما تفضلت
+    age_in_days: {
       type: Number,
       required: true,
       min: 1,
     },
-    
-    // 💀 النافق والاستبعاد (لكل أنواع العنابر)
     mortality_count: { type: Number, default: 0, min: 0 },
-    culled_count: { type: Number, default: 0, min: 0 }, // فرز واستبعاد (مريضة/ضعيفة)
-
-    // 🌾 الاستهلاك (لتبسيط الإدخال على المشرف)
-    feed_consumed_bags: { type: Number, default: 0, min: 0 }, // 15 شكارة
-    feed_consumed_kg: { type: Number, default: 0, min: 0 },   // فكة بالكيلو لو فيه
+    culled_count: { type: Number, default: 0, min: 0 },
+    feed_consumed_bags: { type: Number, default: 0, min: 0 },
+    feed_consumed_kg: { type: Number, default: 0, min: 0 },
     water_consumed_liters: { type: Number, default: 0, min: 0 },
-
-    // 🥚 إنتاج البيض (تُستخدم فقط لو كان العنبر LAYER بياض أو أمهات)
-    egg_trays_produced: { type: Number, default: 0, min: 0 }, // عدد الأطباق السليمة
-    loose_eggs_produced: { type: Number, default: 0, min: 0 }, // بيض فرط (أقل من طبق)
-    broken_eggs: { type: Number, default: 0, min: 0 }, // بيض مكسور/مستبعد
-
-    // ⚖️ الأوزان الطبية (تُستخدم أساساً في دورات التسمين BROILER)
+    egg_trays_produced: { type: Number, default: 0, min: 0 },
+    loose_eggs_produced: { type: Number, default: 0, min: 0 },
+    broken_eggs: { type: Number, default: 0, min: 0 },
     average_weight_grams: { type: Number, default: null }, 
-
-    // 💉 الأدوية والملاحظات
     medications_given: { type: String, trim: true, default: '' },
     notes: { type: String, trim: true, default: '' },
   },
@@ -66,7 +63,7 @@ const dailyLogSchema = new mongoose.Schema(
   }
 );
 
-// منع المشرف من تسجيل تقريرين لنفس العنبر/الدورة في نفس اليوم (يجب أن يعدل القديم)
+// الفهرس لمنع تكرار التقرير في نفس اليوم (يعمل بكفاءة لأن الكنترولر يصفر الساعات)
 dailyLogSchema.index({ cycle_id: 1, log_date: 1 }, { unique: true });
 
 module.exports = mongoose.model('DailyLog', dailyLogSchema);

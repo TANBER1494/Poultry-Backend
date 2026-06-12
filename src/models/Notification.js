@@ -48,4 +48,10 @@ const notificationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+//  التطوير المعماري 1: فهرس مركب (Compound Index) لتسريع الفرز بشكل جذري أثناء جلب الإشعارات
+notificationSchema.index({ organization_id: 1, target_role: 1, createdAt: -1 });
+
+//  التطوير المعماري 2: (TTL Index) لحذف الإشعارات تلقائياً بعد 30 يوماً من إنشائها لتنظيف الداتا بيز
+notificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
+
 module.exports = mongoose.model('Notification', notificationSchema);

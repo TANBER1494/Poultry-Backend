@@ -18,29 +18,33 @@ const addInventoryItem = asyncHandler(async (req, res, next) => {
     return next(new AppError('البيانات الأساسية للصنف مطلوبة (المزرعة، الاسم، التصنيف، الوحدة)', 400));
   }
 
-  // سد ثغرة IDOR
   const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
   if (!farm) {
     return next(new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403));
   }
 
-  const existingItem = await InventoryItem.findOne({ farm_id, name: name.trim(), deleted_at: null }).lean();
-  if (existingItem) {
-    return next(new AppError('هذا الصنف مسجل بالفعل في مخزن المزرعة', 400));
+  try {
+    //  الترقية المعمارية: تمرير orgId والاعتماد على قوة الفهرس المركب في MongoDB لمنع التكرار
+    const newItem = await InventoryItem.create({
+      organization_id: orgId, 
+      farm_id,
+      name: name.trim(),
+      category,
+      unit,
+      min_alert_level: Number(min_alert_level) || 0
+    });
+
+    res.status(201).json({
+      message: 'تم إضافة الصنف لبطاقة المخازن بنجاح',
+      item: newItem
+    });
+  } catch (error) {
+    // التقاط خطأ التكرار من المحرك مباشرة (لتوفير Database Round-trip)
+    if (error.code === 11000) {
+      return next(new AppError('هذا الصنف مسجل بالفعل في مخزن المزرعة', 400));
+    }
+    throw error;
   }
-
-  const newItem = await InventoryItem.create({
-    farm_id,
-    name: name.trim(),
-    category,
-    unit,
-    min_alert_level: Number(min_alert_level) || 0
-  });
-
-  res.status(201).json({
-    message: 'تم إضافة الصنف لبطاقة المخازن بنجاح',
-    item: newItem
-  });
 });
 
 /**
@@ -52,13 +56,8 @@ const getInventoryItems = asyncHandler(async (req, res, next) => {
   const { farm_id } = req.params;
   const orgId = req.user.organization_id;
 
-  // سد ثغرة IDOR
-  const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
-  if (!farm) {
-    return next(new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403));
-  }
-
-  const items = await InventoryItem.find({ farm_id, deleted_at: null })
+  //  الترقية المعمارية: استعلام مباشر يعتمد على orgId يوفر الحاجة للبحث في جدول Farm
+  const items = await InventoryItem.find({ farm_id, organization_id: orgId, deleted_at: null })
     .sort({ category: 1, name: 1 })
     .lean();
 
@@ -98,18 +97,13 @@ const getItemMovements = asyncHandler(async (req, res, next) => {
   const { item_id } = req.params;
   const orgId = req.user.organization_id;
 
-  // التحقق من أن الصنف يتبع لمزرعة يملكها المستخدم لسد ثغرة IDOR
-  const item = await InventoryItem.findById(item_id).lean();
+  //  الترقية المعمارية: سد ثغرة IDOR في استعلام واحد فقط (O(1)) بدلاً من استعلامين
+  const item = await InventoryItem.findOne({ _id: item_id, organization_id: orgId }).lean();
   if (!item) {
-    return next(new AppError('الصنف غير موجود', 404));
+    return next(new AppError('الصنف غير موجود أو لا تملك صلاحية الوصول إليه', 404));
   }
 
-  const farm = await Farm.findOne({ _id: item.farm_id, organization_id: orgId }).lean();
-  if (!farm) {
-    return next(new AppError('لا تملك صلاحية الوصول لبيانات هذا الصنف', 403));
-  }
-
-  const movements = await InventoryMovement.find({ item_id })
+  const movements = await InventoryMovement.find({ item_id, organization_id: orgId })
     .populate('performed_by', 'name role')
     .populate('cycle_id', 'name type')
     .sort({ movement_date: -1 })

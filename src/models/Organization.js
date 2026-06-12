@@ -17,12 +17,20 @@ const organizationSchema = new mongoose.Schema(
       required: [true, 'رقم هاتف المالك مطلوب'],
       unique: true, 
       index: true,
+      //  التطوير المعماري: ضمان صحة رقم الهاتف
+      match: [/^(01[0125][0-9]{8})$/, 'رقم الهاتف غير صالح، يجب أن يكون رقماً مصرياً صحيحاً']
     },
     max_allowed_farms: { 
       type: Number,
       default: 1,
       min: [1, 'يجب أن يكون الحد الأدنى للمزارع المسموح بها 1'],
     },
+    //  التطوير المعماري: مفتاح إيقاف كامل للشركة لتعليق جميع أنشطتها ومزارعها بضغطة واحدة
+    status: {
+      type: String,
+      enum: ['ACTIVE', 'SUSPENDED'],
+      default: 'ACTIVE'
+    }
   },
   {
     timestamps: true, 

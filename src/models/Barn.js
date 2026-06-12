@@ -21,7 +21,7 @@ const barnSchema = new mongoose.Schema(
     },
     barn_type: {
       type: String,
-      enum: ['BROILER', 'LAYER', 'BREEDER'], // تسمين، بياض، أمهات
+      enum: ['BROILER', 'LAYER', 'BREEDER'],
       required: [true, 'يجب تحديد نوع نشاط العنبر'],
     },
     capacity: {
@@ -31,7 +31,7 @@ const barnSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['ACTIVE', 'MAINTENANCE', 'INACTIVE'], // نشط، صيانة وتطهير، مغلق
+      enum: ['ACTIVE', 'MAINTENANCE', 'INACTIVE'],
       default: 'ACTIVE',
     },
     deleted_at: {
@@ -42,6 +42,12 @@ const barnSchema = new mongoose.Schema(
   {
     timestamps: true,
   }
+);
+
+//  التطوير المعماري: منع تكرار اسم العنبر داخل نفس المزرعة للعنابر غير المحذوفة فقط
+barnSchema.index(
+  { farm_id: 1, name: 1 }, 
+  { unique: true, partialFilterExpression: { deleted_at: null } }
 );
 
 module.exports = mongoose.model('Barn', barnSchema);

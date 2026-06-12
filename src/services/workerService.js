@@ -10,16 +10,25 @@ class WorkerService {
    * حساب الرصيد الصافي للعامل باستخدام Aggregation لضمان الأداء الفائق
    * @private
    */
-  async _calculateWorkerBalance(workerId) {
+  async _calculateWorkerBalance(workerId, orgId) {
     const workerObjectId = new mongoose.Types.ObjectId(workerId);
+    const orgObjectId = new mongoose.Types.ObjectId(orgId);
 
+    //  الترقية المعمارية: تضمين orgId في الـ Aggregation لأمان مطلق
     const [earnedResult, drawnResult] = await Promise.all([
       WorkerLog.aggregate([
-        { $match: { worker_id: workerObjectId } },
+        { $match: { worker_id: workerObjectId, organization_id: orgObjectId } },
         { $group: { _id: null, total: { $sum: '$earned_amount' } } }
       ]),
       Transaction.aggregate([
-        { $match: { worker_id: workerObjectId, type: 'OUT', category: { $in: ['WORKER_ADVANCE', 'WORKER_SALARY'] } } },
+        { 
+          $match: { 
+            worker_id: workerObjectId, 
+            organization_id: orgObjectId,
+            type: 'OUT', 
+            category: { $in: ['WORKER_ADVANCE', 'WORKER_SALARY'] } 
+          } 
+        },
         { $group: { _id: null, total: { $sum: '$amount' } } }
       ])
     ]);
@@ -39,23 +48,30 @@ class WorkerService {
     const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
     if (!farm) throw new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403);
 
-    return await Worker.create({
-      farm_id,
-      name: name.trim(),
-      phone: phone ? phone.trim() : '',
-      national_id: national_id ? national_id.trim() : '',
-      base_daily_wage: Number(base_daily_wage)
-    });
+    try {
+      //  الترقية المعمارية: حقن orgId الإلزامي لإنقاذ العملية من الانهيار
+      return await Worker.create({
+        organization_id: orgId, 
+        farm_id,
+        name: name.trim(),
+        phone: phone ? phone.trim() : '',
+        national_id: national_id ? national_id.trim() : '',
+        base_daily_wage: Number(base_daily_wage)
+      });
+    } catch (error) {
+      if (error.code === 11000) {
+        throw new AppError('يوجد عامل مسجل بالفعل بنفس الرقم القومي في هذه المزرعة', 400);
+      }
+      throw error;
+    }
   }
 
   /**
    * جلب قائمة العمال
    */
   async getWorkers(farmId, orgId, filters) {
-    const farm = await Farm.findOne({ _id: farmId, organization_id: orgId }).lean();
-    if (!farm) throw new AppError('المزرعة غير موجودة', 403);
-
-    const query = { farm_id: farmId };
+    //  الترقية المعمارية: استعلام واحد مباشر O(1) بدلاً من استعلامين متتاليين
+    const query = { farm_id: farmId, organization_id: orgId };
     if (filters.status) query.status = filters.status;
 
     return await Worker.find(query).sort({ status: 1, name: 1 }).lean();
@@ -70,62 +86,60 @@ class WorkerService {
     const existingLogByLocalId = await WorkerLog.findOne({ local_id }).lean();
     if (existingLogByLocalId) return { isDuplicate: true, log: existingLogByLocalId };
 
-    const worker = await Worker.findById(worker_id).lean();
+    //  التوثيق السريع بخطوة واحدة
+    const worker = await Worker.findOne({ _id: worker_id, organization_id: orgId }).lean();
     if (!worker || worker.status === 'TERMINATED') {
       throw new AppError('العامل غير موجود أو تم إنهاء عمله', 404);
     }
 
-    const farm = await Farm.findOne({ _id: worker.farm_id, organization_id: orgId }).lean();
-    if (!farm) throw new AppError('لا تملك صلاحية الوصول لبيانات هذا العامل', 403);
-
-    const targetDate = new Date(log_date);
-    targetDate.setHours(0, 0, 0, 0);
-
-    const existingLogByDate = await WorkerLog.findOne({
-      worker_id,
-      log_date: {
-        $gte: targetDate,
-        $lt: new Date(targetDate.getTime() + 24 * 60 * 60 * 1000)
-      }
-    }).lean();
-
-    if (existingLogByDate) throw new AppError('تم تسجيل يومية لهذا العامل في هذا التاريخ مسبقاً', 400);
+    //  الترقية المعمارية: توحيد التاريخ للـ UTC لإجبار الداتا بيز على صد التكرار تلقائياً
+    const normalizedLogDate = new Date(log_date);
+    normalizedLogDate.setUTCHours(0, 0, 0, 0);
 
     const earnedAmount = worker.base_daily_wage * Number(wage_multiplier);
 
-    const newLog = await WorkerLog.create({
-      local_id,
-      farm_id: worker.farm_id,
-      worker_id,
-      recorded_by: userId,
-      log_date: new Date(log_date),
-      wage_multiplier: Number(wage_multiplier),
-      earned_amount: earnedAmount,
-      notes: notes ? notes.trim() : ''
-    });
+    try {
+      //  الترقية المعمارية: حقن orgId الإلزامي
+      const newLog = await WorkerLog.create({
+        local_id,
+        organization_id: orgId, 
+        farm_id: worker.farm_id,
+        worker_id,
+        recorded_by: userId,
+        log_date: normalizedLogDate,
+        wage_multiplier: Number(wage_multiplier),
+        earned_amount: earnedAmount,
+        notes: notes ? notes.trim() : ''
+      });
 
-    return { isDuplicate: false, log: newLog };
+      return { isDuplicate: false, log: newLog };
+    } catch (error) {
+      if (error.code === 11000) {
+        throw new AppError('تم تسجيل يومية لهذا العامل في هذا التاريخ مسبقاً', 400);
+      }
+      throw error;
+    }
   }
 
   /**
    * جلب كشف حساب العامل
    */
   async getWorkerStatement(workerId, orgId) {
-    const worker = await Worker.findById(workerId).lean();
-    if (!worker) throw new AppError('العامل غير موجود', 404);
+    //  توثيق وجلب بـ O(1)
+    const worker = await Worker.findOne({ _id: workerId, organization_id: orgId }).lean();
+    if (!worker) throw new AppError('العامل غير موجود أو لا تملك صلاحية الوصول له', 404);
 
-    const farm = await Farm.findOne({ _id: worker.farm_id, organization_id: orgId }).lean();
-    if (!farm) throw new AppError('لا تملك صلاحية الوصول لكشف حساب هذا العامل', 403);
+    const { totalEarned, totalDrawn, netBalance } = await this._calculateWorkerBalance(workerId, orgId);
 
-    const { totalEarned, totalDrawn, netBalance } = await this._calculateWorkerBalance(workerId);
-
-    const logs = await WorkerLog.find({ worker_id: workerId })
+    //  حقن orgId في الاستعلامات لتأمين (IDOR) بشكل قاطع
+    const logs = await WorkerLog.find({ worker_id: workerId, organization_id: orgId })
       .select('log_date wage_multiplier earned_amount notes')
       .sort({ log_date: -1 })
       .lean();
 
     const transactions = await Transaction.find({ 
       worker_id: workerId, 
+      organization_id: orgId,
       type: 'OUT', 
       category: { $in: ['WORKER_ADVANCE', 'WORKER_SALARY'] } 
     })
@@ -158,14 +172,14 @@ class WorkerService {
     const existingTransaction = await Transaction.findOne({ local_id }).lean();
     if (existingTransaction) return { isDuplicate: true, transaction: existingTransaction };
 
-    const worker = await Worker.findById(worker_id).lean();
-    if (!worker) throw new AppError('العامل غير موجود', 404);
+    //  توثيق بخطوة واحدة
+    const worker = await Worker.findOne({ _id: worker_id, organization_id: orgId }).lean();
+    if (!worker) throw new AppError('العامل غير موجود أو لا تملك صلاحية الوصول له', 404);
 
-    const farm = await Farm.findOne({ _id: worker.farm_id, organization_id: orgId }).lean();
-    if (!farm) throw new AppError('لا تملك صلاحية الوصول لبيانات هذا العامل', 403);
-
+    //  الترقية المعمارية: حقن orgId الإلزامي لإنقاذ عملية الخزينة
     const newTransaction = await Transaction.create({
       local_id,
+      organization_id: orgId, 
       farm_id: worker.farm_id,
       worker_id,
       performed_by: userId,
@@ -184,14 +198,11 @@ class WorkerService {
    * تغيير حالة العامل
    */
   async changeStatus(workerId, status, orgId) {
-    const worker = await Worker.findById(workerId);
-    if (!worker) throw new AppError('العامل غير موجود', 404);
-
-    const farm = await Farm.findOne({ _id: worker.farm_id, organization_id: orgId }).lean();
-    if (!farm) throw new AppError('لا تملك صلاحية الوصول لبيانات هذا العامل', 403);
+    const worker = await Worker.findOne({ _id: workerId, organization_id: orgId });
+    if (!worker) throw new AppError('العامل غير موجود أو لا تملك صلاحية التعديل عليه', 404);
 
     if (status === 'TERMINATED') {
-      const { netBalance } = await this._calculateWorkerBalance(workerId);
+      const { netBalance } = await this._calculateWorkerBalance(workerId, orgId);
       if (netBalance < 0) {
         throw new AppError(`لا يمكن إنهاء عمل العامل وعليه مديونية (سلف غير مسددة) بقيمة ${Math.abs(netBalance)} ج.م`, 400);
       }

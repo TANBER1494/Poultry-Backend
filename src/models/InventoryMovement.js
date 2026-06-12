@@ -8,6 +8,12 @@ const inventoryMovementSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    //  التطوير المعماري: لدعم تقارير المركز المالي المجمعة للمؤسسة
+    organization_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Organization',
+      index: true,
+    },
     farm_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Farm',
@@ -26,57 +32,53 @@ const inventoryMovementSchema = new mongoose.Schema(
     performed_by: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true, // المشرف اللي سجل إنتاج المدشة أو استلم العربية
+      required: true, 
     },
-    
     movement_type: {
       type: String,
       enum: [
-        'PRODUCTION',    // 🏭 إنتاج داخلي (للمزارع التي بها مدشة)
-        'TRANSFER_IN',   // 🚛 وارد من مزرعة أخرى تابعة للمالك
-        'PURCHASE',      // 🛒 شراء من شركة أعلاف خارجية
-        'CONSUMPTION',   // 🐓 منصرف استهلاك للطيور (يخصم من المخزن)
-        'ADJUSTMENT',    // ⚖️ تسوية جرد (عجز أو زيادة)
+        'PRODUCTION',    
+        'TRANSFER_IN',   
+        'PURCHASE',      
+        'CONSUMPTION',   
+        'ADJUSTMENT',    
+        'RETURN'         //  التطوير المعماري: إصلاح الثغرة القاتلة (تم إضافتها هنا لتتوافق مع الـ Controller)
       ],
       required: true,
     },
-    
-    // 🚛 في حال كان العلف جاي من مزرعة تانية للمالك، نسجل جات منين!
     source_farm_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Farm',
       default: null,
     },
-
     quantity: {
       type: Number,
-      required: [true, 'يجب تحديد الكمية (بالشكارة أو الطن حسب إعداد الصنف)'],
+      required: [true, 'يجب تحديد الكمية'],
       min: [0.01, 'الكمية يجب أن تكون أكبر من الصفر'], 
     },
     unit_cost_at_time: {
       type: Number,
-      required: [true, 'سعر الشكارة أو الطن وقت الحركة (سواء بعد الإنتاج أو عند الشراء)'],
+      required: [true, 'سعر الوحدة وقت الحركة مطلوب'],
       min: 0,
     },
-    total_value: { // quantity * unit_cost_at_time
+    total_value: {
       type: Number,
       required: true,
       min: 0,
     },
     movement_date: {
       type: Date,
-      required: true, // التاريخ الفعلي للإنتاج أو وصول السيارة
+      required: true,
     },
     reference_doc: { 
       type: String,
       trim: true,
-      default: '', // مثال: "رقم اللوط بتاع المدشة" أو "رقم بوليصة السواق"
+      default: '', 
     },
   },
   { timestamps: true }
 );
 
-// فهارس لتسريع استخراج تقارير التكلفة للمالك
 inventoryMovementSchema.index({ farm_id: 1, movement_type: 1 });
 inventoryMovementSchema.index({ cycle_id: 1 });
 

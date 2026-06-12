@@ -26,17 +26,17 @@ const cycleSchema = new mongoose.Schema(
     },
     name: {
       type: String,
-      required: [true, 'اسم الدورة مطلوب (مثال: دورة تسمين مايو 2026)'],
+      required: [true, 'اسم الدورة مطلوب'],
       trim: true,
     },
     type: {
       type: String,
-      enum: ['BROILER', 'LAYER'], // تسمين، بياض
+      enum: ['BROILER', 'LAYER'],
       required: true,
     },
     status: {
       type: String,
-      enum: ['PREPARATION', 'ACTIVE', 'CLOSED'], // تجهيز، تعمل، مقفلة/مصفاة
+      enum: ['PREPARATION', 'ACTIVE', 'CLOSED'],
       default: 'ACTIVE',
     },
     start_date: {
@@ -44,7 +44,6 @@ const cycleSchema = new mongoose.Schema(
       required: [true, 'تاريخ استلام الكتاكيت/الطيور مطلوب'],
     },
     end_date: {
-      // تاريخ بيع وتصفية الدورة
       type: Date,
       default: null,
     },
@@ -53,22 +52,27 @@ const cycleSchema = new mongoose.Schema(
       required: [true, 'العدد الابتدائي للطيور مطلوب'],
       min: 1,
     },
+    //  التطوير المعماري: منع نزول رصيد الطيور تحت الصفر نهائياً
     current_bird_count: {
-      // يتم تحديثه تلقائياً كلما زاد النافق
       type: Number,
       required: true,
+      min: [0, 'لا يمكن أن يكون رصيد الطيور بالسالب'],
     },
-    // 💰 ميزانية الدورة (تُحدث تلقائياً مع كل عملية مالية تخص هذه الدورة)
-    total_expenses: { type: Number, default: 0 }, // تكلفة كتكوت، علف، أدوية، عمال
-    total_revenue: { type: Number, default: 0 }, // مبيعات لحم، بيض، سبلة
-    net_profit: { type: Number, default: 0 }, // صافي الربح (يُحسب عند الإغلاق)
+    total_expenses: { type: Number, default: 0 },
+    total_revenue: { type: Number, default: 0 },
+    net_profit: { type: Number, default: 0 },
   },
   {
     timestamps: true,
   }
 );
 
-// لضمان سرعة استخراج التقارير للدورة
 cycleSchema.index({ farm_id: 1, status: 1 });
+
+//  التطوير المعماري: منع وجود دورتين (تجهيز أو نشطة) في نفس العنبر في اللحظة ذاتها
+cycleSchema.index(
+  { barn_id: 1 },
+  { unique: true, partialFilterExpression: { status: { $in: ['PREPARATION', 'ACTIVE'] } } }
+);
 
 module.exports = mongoose.model('Cycle', cycleSchema);

@@ -6,13 +6,6 @@ const Farm = require('../models/Farm');
 const AppError = require('../utils/AppError');
 
 class InventoryService {
-  /**
-   * تسجيل حركة مخزنية مع حساب متوسط التكلفة المرجح وتأمين المعاملات
-   * @param {Object} data - بيانات الحركة المخزنية
-   * @param {String} userId - معرف المستخدم الذي قام بالعملية
-   * @param {String} orgId - معرف المؤسسة للتحقق من الصلاحيات
-   * @returns {Promise<Object>} - الحركة المخزنية المسجلة
-   */
   async recordMovement(data, userId, orgId) {
     const { 
       local_id, farm_id, item_id, movement_type, 
@@ -20,15 +13,14 @@ class InventoryService {
       cycle_id, source_farm_id, reference_doc 
     } = data;
 
-    // التحقق من ملكية المؤسسة للمزرعة لسد ثغرة IDOR
-    const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
-    if (!farm) {
-      throw new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403);
-    }
-
     const existingMovement = await InventoryMovement.findOne({ local_id }).lean();
     if (existingMovement) {
       return { isDuplicate: true, movement: existingMovement };
+    }
+
+    const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
+    if (!farm) {
+      throw new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403);
     }
 
     const numericQuantity = Number(quantity);
@@ -39,18 +31,16 @@ class InventoryService {
     session.startTransaction();
 
     try {
-      const item = await InventoryItem.findOne({ _id: item_id, farm_id }).session(session);
+      //  الترقية المعمارية: أضفنا orgId لضمان الأمان المطلق للمؤسسة أثناء الـ Transaction
+      const item = await InventoryItem.findOne({ _id: item_id, farm_id, organization_id: orgId }).session(session);
       if (!item) {
         throw new AppError('الصنف غير موجود في مخزن هذه المزرعة', 404);
       }
 
       let newStockQuantity = item.stock_quantity;
       
-      // تطبيق القواعد المحاسبية بناءً على نوع التوجيه المخزني
       if (['PURCHASE', 'TRANSFER_IN', 'PRODUCTION', 'RETURN'].includes(movement_type)) {
         newStockQuantity += numericQuantity;
-        
-        // حساب متوسط التكلفة المرجح اللحظي
         const currentTotalValue = item.stock_quantity * item.average_unit_cost;
         const newTotalValue = currentTotalValue + totalValue;
         item.average_unit_cost = newStockQuantity > 0 ? (newTotalValue / newStockQuantity) : 0;
@@ -65,18 +55,23 @@ class InventoryService {
       item.stock_quantity = newStockQuantity;
       await item.save({ session });
 
-      // معالجة التكاليف التشغيلية إن وجدت
+      //  الترقية المعمارية: استخدام التحديث الذري ($inc) لمنع ثغرات التزامن أثناء الاستهلاك
       if (movement_type === 'CONSUMPTION' && cycle_id) {
-        const cycle = await Cycle.findOne({ _id: cycle_id, farm_id }).session(session);
-        if (!cycle || cycle.status !== 'ACTIVE') {
+        const cycle = await Cycle.findOneAndUpdate(
+          { _id: cycle_id, farm_id, organization_id: orgId, status: 'ACTIVE' },
+          { $inc: { total_expenses: totalValue } },
+          { new: true, session }
+        );
+        
+        if (!cycle) {
           throw new AppError('الدورة المحددة للاستهلاك غير موجودة أو مغلقة', 404);
         }
-        cycle.total_expenses += totalValue;
-        await cycle.save({ session });
       }
 
+      //  الترقية المعمارية: تمرير organization_id ليتوافق مع القيود المرجعية الصارمة
       const [movement] = await InventoryMovement.create([{
         local_id,
+        organization_id: orgId, 
         farm_id,
         item_id,
         cycle_id: cycle_id || null,

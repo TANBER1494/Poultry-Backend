@@ -25,7 +25,7 @@ class PlatformPaymentService {
       receipt_image_url: fileUrl,
     });
 
-    // إرسال الإشعار للإدارة بشكل غير متزامن (بدون تعطيل العملية الأساسية)
+    // إرسال الإشعار للإدارة بشكل غير متزامن
     this._notifySuperAdmin(orgId, farm_id, amount_paid).catch(err => {
       console.error('Failed to notify SUPER_ADMIN:', err.message);
     });
@@ -42,14 +42,18 @@ class PlatformPaymentService {
       organization_id: orgId,
       farm_id: farmId,
       target_role: 'SUPER_ADMIN',
-      title: 'طلب تجديد اشتراك جديد 💳',
+      title: 'طلب تجديد اشتراك جديد ',
       message: `قام المالك برفع إيصال دفع بمبلغ ${amount} ج.م بانتظار مراجعتك.`,
       type: 'SYSTEM',
       link: '/admin/payments',
     });
 
-    const io = socket.getIO();
-    io.to('SUPER_ADMIN_ROOM').emit('new_notification', notification.toJSON ? notification.toJSON() : notification);
+    try {
+      const io = socket.getIO();
+      io.to('SUPER_ADMIN_ROOM').emit('new_notification', notification.toJSON ? notification.toJSON() : notification);
+    } catch (error) {
+      console.warn('Socket emit failed (Admin Notification):', error.message);
+    }
   }
 
   /**
@@ -87,41 +91,43 @@ class PlatformPaymentService {
   }
 
   /**
-   * مراجعة طلب الدفع من قبل الإدارة (قبول / رفض)
+   * مراجعة طلب الدفع من قبل الإدارة (الاعتماد الذري المانع للتزامن)
    */
   async reviewPaymentRequest(paymentId, action, adminNotes) {
-    const payment = await PlatformPayment.findById(paymentId);
-    if (!payment) throw new AppError('طلب الدفع غير موجود', 404);
+    //  الترقية المعمارية: بدء الـ Transaction أولاً لغلق السجل (Locking)
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-    if (payment.status !== 'PENDING') {
-      throw new AppError(`هذا الطلب تمت مراجعته مسبقاً وحالته: ${payment.status}`, 400);
-    }
-
-    if (action === 'REJECT') {
-      payment.status = 'REJECTED';
-      payment.admin_notes = adminNotes ? adminNotes.trim() : 'تم رفض الطلب لعدم تطابق البيانات، يرجى مراجعة الإدارة.';
-      await payment.save();
-      return { status: 'REJECTED' };
-    }
-
-    if (action === 'APPROVE') {
-      const farm = await Farm.findById(payment.farm_id);
-      if (!farm) throw new AppError('المزرعة المرتبطة بهذا الطلب لم تعد موجودة', 404);
-
-      const now = new Date();
-      let newStartDate = now;
-
-      if (farm.subscription_status === 'ACTIVE' && farm.subscription_ends_at && farm.subscription_ends_at > now) {
-        newStartDate = new Date(farm.subscription_ends_at);
+    try {
+      //  التوثيق داخل الـ Transaction والتأكد اللحظي من أنه PENDING
+      const payment = await PlatformPayment.findOne({ _id: paymentId, status: 'PENDING' }).session(session);
+      
+      if (!payment) {
+        throw new AppError('طلب الدفع غير موجود، أو تمت مراجعته مسبقاً من قبل مسؤول آخر (تضارب إجراءات).', 400);
       }
 
-      const newEndDate = new Date(newStartDate);
-      newEndDate.setMonth(newEndDate.getMonth() + payment.requested_months);
+      if (action === 'REJECT') {
+        payment.status = 'REJECTED';
+        payment.admin_notes = adminNotes ? adminNotes.trim() : 'تم رفض الطلب لعدم تطابق البيانات، يرجى مراجعة الإدارة.';
+        await payment.save({ session });
+        await session.commitTransaction();
+        return { status: 'REJECTED' };
+      }
 
-      const session = await mongoose.startSession();
-      session.startTransaction();
+      if (action === 'APPROVE') {
+        const farm = await Farm.findById(payment.farm_id).session(session);
+        if (!farm) throw new AppError('المزرعة المرتبطة بهذا الطلب لم تعد موجودة', 404);
 
-      try {
+        const now = new Date();
+        let newStartDate = now;
+
+        if (farm.subscription_status === 'ACTIVE' && farm.subscription_ends_at && farm.subscription_ends_at > now) {
+          newStartDate = new Date(farm.subscription_ends_at);
+        }
+
+        const newEndDate = new Date(newStartDate);
+        newEndDate.setMonth(newEndDate.getMonth() + payment.requested_months);
+
         farm.subscription_status = 'ACTIVE';
         farm.subscription_ends_at = newEndDate;
         await farm.save({ session });
@@ -134,27 +140,33 @@ class PlatformPaymentService {
           organization_id: payment.organization_id,
           farm_id: farm._id,
           target_role: 'OWNER',
-          title: 'تم تفعيل اشتراك المزرعة!',
+          title: 'تم تفعيل اشتراك المزرعة! 💳',
           message: `تمت مراجعة إيصال الدفع بنجاح، وتفعيل اشتراك مزرعة (${farm.name}) لمدة ${payment.requested_months} شهر/شهور.`,
           type: 'SYSTEM',
           link: '/owner/farms',
         }], { session });
 
         await session.commitTransaction();
-        session.endSession();
 
-        const io = socket.getIO();
-        io.to(payment.organization_id.toString()).emit('new_notification', notification);
+        // إرسال الـ Socket بعد التأكد 100% من نجاح الـ Commit لتفادي الإشعارات الوهمية
+        try {
+          const io = socket.getIO();
+          io.to(payment.organization_id.toString()).emit('new_notification', notification);
+        } catch (socketErr) {
+          console.warn('Socket emit failed (Owner Notification):', socketErr.message);
+        }
 
         return { status: 'APPROVED', newEndDate, months: payment.requested_months };
-      } catch (error) {
-        await session.abortTransaction();
-        session.endSession();
-        throw new AppError('حدث خطأ أثناء حفظ الموافقة وتفعيل المزرعة، تم التراجع لحماية النظام', 500);
       }
-    }
 
-    throw new AppError('إجراء غير معروف (يجب أن يكون APPROVE أو REJECT)', 400);
+      throw new AppError('إجراء غير معروف (يجب أن يكون APPROVE أو REJECT)', 400);
+      
+    } catch (error) {
+      await session.abortTransaction();
+      throw error;
+    } finally {
+      session.endSession();
+    }
   }
 }
 

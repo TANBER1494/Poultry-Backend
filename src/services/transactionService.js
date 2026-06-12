@@ -31,12 +31,13 @@ class TransactionService {
     try {
       // 1. معالجة تسديد الفواتير (تحديث ذري آمن)
       if (invoice_id) {
-        // التحديث الذري باستخدام $inc لضمان عدم تداخل الدفعات المتزامنة
+        //  الترقية المعمارية: تضمين organization_id في التحديث الذري لمنع التلاعب
         const updatedInvoice = await Invoice.findOneAndUpdate(
           { 
             _id: invoice_id, 
             farm_id, 
-            remaining_amount: { $gte: numericAmount } // ضمان عدم دفع مبلغ أكبر من المتبقي
+            organization_id: orgId,
+            remaining_amount: { $gte: numericAmount } 
           },
           { 
             $inc: { 
@@ -51,11 +52,10 @@ class TransactionService {
           throw new AppError('الفاتورة غير موجودة، أو المبلغ المدفوع يتجاوز القيمة المتبقية للفاتورة', 400);
         }
 
-        // تحديث حالة الفاتورة بناءً على الرصيد المتبقي الجديد
         const paymentStatus = updatedInvoice.remaining_amount === 0 ? 'PAID' : 'PARTIAL';
         await Invoice.updateOne(
           { _id: invoice_id }, 
-          { payment_status: paymentStatus }, 
+          { paymentStatus: paymentStatus }, 
           { session }
         );
       } 
@@ -66,13 +66,13 @@ class TransactionService {
         if (type === 'IN') {
           cycleIncQuery = { total_revenue: numericAmount };
         } else if (type === 'OUT' && !['FEED_PURCHASE', 'MED_PURCHASE'].includes(category)) {
-          // استثناء تكاليف المخزون لمنع الازدواج المحاسبي
           cycleIncQuery = { total_expenses: numericAmount };
         }
 
         if (Object.keys(cycleIncQuery).length > 0) {
+          // 🛡️ الترقية المعمارية: تأمين التحديث الذري للدورة
           await Cycle.findOneAndUpdate(
-            { _id: cycle_id, farm_id, status: { $ne: 'CLOSED' } },
+            { _id: cycle_id, farm_id, organization_id: orgId, status: { $ne: 'CLOSED' } },
             { $inc: cycleIncQuery },
             { session }
           );
@@ -80,8 +80,10 @@ class TransactionService {
       }
 
       // 3. إنشاء القيد المالي في الخزينة
+      //  الترقية المعمارية: إصلاح اللغم البرمجي وحقن organization_id الإلزامي
       const [newTransaction] = await Transaction.create([{
         local_id,
+        organization_id: orgId, 
         farm_id,
         cycle_id: cycle_id || null,
         worker_id: worker_id || null,
@@ -111,10 +113,9 @@ class TransactionService {
    * جلب حركات الخزينة (دفتر الأستاذ)
    */
   async getLedgerTransactions(farmId, orgId, filters) {
-    const farm = await Farm.findOne({ _id: farmId, organization_id: orgId }).lean();
-    if (!farm) throw new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول', 403);
-
-    const query = { farm_id: farmId };
+    //  الترقية المعمارية: توفير استعلام الـ Farm الزائد، والاعتماد المباشر على orgId في الخزينة
+    const query = { farm_id: farmId, organization_id: orgId };
+    
     if (filters.type) query.type = filters.type;
     if (filters.category) query.category = filters.category;
     if (filters.cycle_id) query.cycle_id = filters.cycle_id;
@@ -137,11 +138,14 @@ class TransactionService {
    * جلب ملخص السيولة النقدية باستخدام Aggregation
    */
   async getTreasuryBalance(farmId, orgId) {
-    const farm = await Farm.findOne({ _id: farmId, organization_id: orgId }).lean();
-    if (!farm) throw new AppError('المزرعة غير موجودة', 403);
-
+    //  الترقية المعمارية: استعلام O(1) صارم، مع إزالة البحث الدائري في جدول المزارع
     const pipeline = [
-      { $match: { farm_id: new mongoose.Types.ObjectId(farmId) } },
+      { 
+        $match: { 
+          farm_id: new mongoose.Types.ObjectId(farmId),
+          organization_id: new mongoose.Types.ObjectId(orgId) 
+        } 
+      },
       {
         $group: {
           _id: '$type',

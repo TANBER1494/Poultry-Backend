@@ -20,7 +20,7 @@ const farmSchema = new mongoose.Schema(
     },
     farm_type: { 
       type: String,
-      enum: ['BROILER', 'LAYER', 'BREEDER'], // تسمين، بياض، أمهات
+      enum: ['BROILER', 'LAYER', 'BREEDER'], 
       default: 'BROILER',
       required: true,
     },
@@ -29,7 +29,6 @@ const farmSchema = new mongoose.Schema(
       required: [true, 'يجب تحديد السعة القصوى للمزرعة (عدد الطيور)'],
       min: [0, 'السعة لا يمكن أن تكون سالبة'],
     },
-    
     subscription_status: {
       type: String,
       enum: ['TRIAL', 'ACTIVE', 'OVERDUE', 'LOCKED'],
@@ -58,5 +57,8 @@ const farmSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+//  التطوير المعماري: منع إنشاء مزرعتين بنفس الاسم داخل نفس المؤسسة بقوة محرك الداتا بيز
+farmSchema.index({ organization_id: 1, name: 1 }, { unique: true });
 
 module.exports = mongoose.model('Farm', farmSchema);

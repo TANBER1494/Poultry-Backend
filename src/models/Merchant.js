@@ -22,13 +22,13 @@ const merchantSchema = new mongoose.Schema(
     merchant_type: {
       type: String,
       enum: [
-        'FEED_SUPPLIER', // مورد علف
-        'CHICK_SUPPLIER', // مورد كتاكيت
-        'MED_SUPPLIER', // مورد أدوية وتحصينات
-        'EGG_BUYER', // تاجر بيض (عميل)
-        'MEAT_BUYER', // تاجر لحم فراخ (عميل)
-        'MANURE_BUYER', // تاجر سبلة (عميل)
-        'GENERAL', // عام
+        'FEED_SUPPLIER', 
+        'CHICK_SUPPLIER', 
+        'MED_SUPPLIER', 
+        'EGG_BUYER', 
+        'MEAT_BUYER', 
+        'MANURE_BUYER', 
+        'GENERAL', 
       ],
       required: true,
     },
@@ -36,6 +36,8 @@ const merchantSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: '',
+      //  التطوير المعماري: تحقق اختياري ولكنه صارم في حال إدخال رقم هاتف
+      match: [/^(01[0125][0-9]{8})?$/, 'رقم الهاتف غير صالح، يجب أن يكون رقماً مصرياً صحيحاً']
     },
     address: {
       type: String,
@@ -45,18 +47,16 @@ const merchantSchema = new mongoose.Schema(
     opening_balance: {
       type: Number,
       default: 0,
-      // موجب = التاجر مدين لنا (عليه فلوس) | سالب = التاجر دائن (ليه فلوس)
     },
     status: {
       type: String,
-      enum: ['ACTIVE', 'INACTIVE'], // لو قاطعنا شركة معينة نوقف التعامل معاها
+      enum: ['ACTIVE', 'INACTIVE'], 
       default: 'ACTIVE',
     },
   },
   { timestamps: true }
 );
 
-// فهرس لمنع تسجيل نفس التاجر بنفس النشاط مرتين في نفس المزرعة
 merchantSchema.index(
   { farm_id: 1, name: 1, merchant_type: 1 },
   { unique: true }

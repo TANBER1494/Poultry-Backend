@@ -12,6 +12,7 @@ const platformPaymentSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Farm',
       required: [true, 'يجب تحديد المزرعة المرتبطة بالدفع'],
+      index: true,
     },
     amount_paid: {
       type: Number,
@@ -21,10 +22,11 @@ const platformPaymentSchema = new mongoose.Schema(
     transfer_number: {
       type: String,
       required: [true, 'يجب إدخال رقم الهاتف الذي تم التحويل منه'],
+      trim: true
     },
     requested_months: {
       type: Number,
-      enum: [1, 3, 9],
+      enum: [1, 3, 6, 9, 12], //  ملاحظة: تمت إضافة 6 و 12 لدعم الباقات النصف سنوية والسنوية (وهو المعيار التجاري)
       required: [true, 'يجب تحديد مدة الاشتراك المطلوبة'],
     },
     payment_method: {
@@ -48,6 +50,7 @@ const platformPaymentSchema = new mongoose.Schema(
     admin_notes: {
       type: String,
       default: null,
+      trim: true
     },
     is_deleted_by_owner: {
       type: Boolean,
@@ -58,5 +61,11 @@ const platformPaymentSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+//  التطوير المعماري: فهرس مركب لتسريع جلب الإدارة للطلبات المعلقة (PENDING) مرتبة زمنياً
+platformPaymentSchema.index({ status: 1, createdAt: 1 });
+
+// فهرس لتسريع جلب المالك لسجل مدفوعاته (غير المحذوفة من طرفه)
+platformPaymentSchema.index({ organization_id: 1, is_deleted_by_owner: 1 });
 
 module.exports = mongoose.model('PlatformPayment', platformPaymentSchema);

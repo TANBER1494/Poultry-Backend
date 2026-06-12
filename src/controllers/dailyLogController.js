@@ -43,12 +43,14 @@ const createDailyLog = asyncHandler(async (req, res, next) => {
 const getCycleDailyLogs = asyncHandler(async (req, res, next) => {
   const { cycle_id } = req.params;
   const farmId = req.user.farm_id || req.query.farm_id;
+  const orgId = req.user.organization_id; //  استخراج معرف المؤسسة للأمان
 
   if (!farmId) {
     return next(new AppError('يجب تحديد معرف المزرعة للتحقق من الصلاحيات', 400));
   }
 
-  const logs = await dailyLogService.getLogsByCycle(cycle_id, farmId);
+  //  تمرير orgId للخدمة لمنع أي تلاعب بالمعرفات
+  const logs = await dailyLogService.getLogsByCycle(cycle_id, farmId, orgId);
 
   res.status(200).json({ count: logs.length, logs });
 });

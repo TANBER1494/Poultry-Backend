@@ -8,6 +8,13 @@ const invoiceSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    //  التطوير المعماري: إضافة organization_id لسد ثغرات IDOR وتسريع تقارير المؤسسة
+    organization_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Organization',
+      required: [true, 'يجب ربط الفاتورة بشركة (Organization)'],
+      index: true,
+    },
     farm_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Farm',
@@ -28,50 +35,53 @@ const invoiceSchema = new mongoose.Schema(
     created_by: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true, // من أصدر الفاتورة؟ (المشرف/المالك)
+      required: true, 
     },
     invoice_type: {
       type: String,
-      enum: ['PURCHASE', 'SALE', 'RETURN_PURCHASE', 'RETURN_SALE'], // شراء، بيع، مرتجع شراء، مرتجع بيع
+      enum: ['PURCHASE', 'SALE', 'RETURN_PURCHASE', 'RETURN_SALE'], 
       required: true,
     },
-    
     items: [
       {
-        item_name: { type: String, required: true }, // مثال: "علف بادي" أو "طبق بيض أحمر"
+        item_name: { type: String, required: true }, 
         quantity: { type: Number, required: true },
         unit_price: { type: Number, required: true },
-        total_price: { type: Number, required: true }, // quantity * unit_price
+        total_price: { type: Number, required: true }, 
       }
     ],
-
-    // 💰 الحسابات المالية الصارمة للفاتورة
     total_amount: {
       type: Number,
       required: [true, 'إجمالي الفاتورة مطلوب'],
       min: 0,
     },
-    paid_amount: { // الفلوس اللي ادفعت "كاش" وقت استلام/تسليم البضاعة
+    paid_amount: { 
       type: Number,
       default: 0,
       min: 0,
+      //  التطوير المعماري: أداة تحقق مخصصة لمنع الدفع الزائد بقوة قاعدة البيانات
+      validate: {
+        validator: function(value) {
+          return value <= this.total_amount;
+        },
+        message: 'المبلغ المدفوع لا يمكن أن يتجاوز إجمالي الفاتورة'
+      }
     },
-    remaining_amount: { // total_amount - paid_amount (تُحسب برمجياً في الباك إند)
+    remaining_amount: { 
       type: Number,
       required: true,
       min: 0,
     },
     payment_status: {
       type: String,
-      enum: ['PAID', 'PARTIAL', 'UNPAID'], // خالص، مدفوع جزئياً، آجل بالكامل
+      enum: ['PAID', 'PARTIAL', 'UNPAID'], 
       required: true,
     },
-    
     invoice_date: {
       type: Date,
-      required: true, // تاريخ المعاملة الفعلي
+      required: true, 
     },
-    due_date: { // تاريخ الاستحقاق لتسديد باقي الفلوس (اختياري عشان الإشعارات)
+    due_date: { 
       type: Date,
       default: null,
     },
@@ -84,7 +94,7 @@ const invoiceSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// فهارس لتسريع كشف حساب المورد أو التاجر
+invoiceSchema.index({ organization_id: 1, invoice_date: -1 }); // تسريع جلب فواتير المؤسسة مرتبة زمنياً
 invoiceSchema.index({ merchant_id: 1, invoice_type: 1 });
 invoiceSchema.index({ cycle_id: 1 });
 

@@ -14,21 +14,26 @@ class SupervisorService {
     const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
     if (!farm) throw new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403);
 
-    const existingUser = await User.findOne({ phone }).lean();
-    if (existingUser) throw new AppError('رقم الهاتف مسجل بالفعل في النظام', 400);
-
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash(password, salt);
 
-    return await User.create({
-      organization_id: orgId,
-      farm_id,
-      name: name.trim(),
-      role: 'SUPERVISOR',
-      phone: phone.trim(),
-      password_hash,
-      status: 'ACTIVE'
-    });
+    try {
+      //  الترقية المعمارية: إزالة الفحص اليدوي والاعتماد على قوة محرك البيانات للتعامل مع الحذف الناعم
+      return await User.create({
+        organization_id: orgId,
+        farm_id,
+        name: name.trim(),
+        role: 'SUPERVISOR',
+        phone: phone.trim(),
+        password_hash,
+        status: 'ACTIVE'
+      });
+    } catch (error) {
+      if (error.code === 11000) {
+        throw new AppError('رقم الهاتف مسجل بالفعل لمشرف أو مستخدم نشط في النظام', 400);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -38,7 +43,8 @@ class SupervisorService {
     const farm = await Farm.findOne({ _id: farmId, organization_id: orgId }).lean();
     if (!farm) throw new AppError('المزرعة غير موجودة أو لا تملك صلاحيتها', 403);
 
-    return await User.find({ farm_id: farmId, role: 'SUPERVISOR', deleted_at: null })
+    //  الترقية المعمارية: تضمين orgId في الاستعلام كطبقة حماية إضافية (Defense in Depth)
+    return await User.find({ farm_id: farmId, organization_id: orgId, role: 'SUPERVISOR', deleted_at: null })
       .select('name phone status hiring_date')
       .sort({ createdAt: -1 })
       .lean();
@@ -48,19 +54,21 @@ class SupervisorService {
    * تعديل بيانات المشرف أو تغيير حالته (إيقاف / تنشيط)
    */
   async updateSupervisor(supervisorId, orgId, updates) {
-    const supervisor = await User.findOne({ _id: supervisorId, organization_id: orgId, role: 'SUPERVISOR' });
-    if (!supervisor) throw new AppError('المشرف غير موجود', 404);
+    //  الترقية المعمارية: منع التعديل على المشرفين المحذوفين (المطرودين)
+    const supervisor = await User.findOne({ 
+      _id: supervisorId, 
+      organization_id: orgId, 
+      role: 'SUPERVISOR',
+      deleted_at: null 
+    });
+    
+    if (!supervisor) throw new AppError('المشرف غير موجود أو تم حذفه مسبقاً', 404);
 
     if (updates.name) supervisor.name = updates.name.trim();
-    if (updates.phone) {
-      const existingUser = await User.findOne({ phone: updates.phone, _id: { $ne: supervisorId } }).lean();
-      if (existingUser) throw new AppError('رقم الهاتف الجديد مستخدم بالفعل لحساب آخر', 400);
-      supervisor.phone = updates.phone.trim();
-    }
+    if (updates.phone) supervisor.phone = updates.phone.trim();
     
     if (updates.status && ['ACTIVE', 'SUSPENDED'].includes(updates.status)) {
       supervisor.status = updates.status;
-      // 🛡️ ترقية أمنية: إذا تم إيقاف المشرف، نقتل جلسته الحالية فوراً لطرده من النظام
       if (updates.status === 'SUSPENDED') {
         supervisor.current_session_id = crypto.randomBytes(16).toString('hex');
       }
@@ -69,29 +77,37 @@ class SupervisorService {
     if (updates.password) {
       const salt = await bcrypt.genSalt(10);
       supervisor.password_hash = await bcrypt.hash(updates.password, salt);
-      // تغيير الباسوورد يقتل الجلسات القديمة أيضاً
       supervisor.current_session_id = crypto.randomBytes(16).toString('hex');
     }
 
-    await supervisor.save();
-    return supervisor;
+    try {
+      await supervisor.save();
+      return supervisor;
+    } catch (error) {
+      // التقاط محاولة استخدام رقم هاتف يخص مشرف آخر نشط
+      if (error.code === 11000) {
+        throw new AppError('رقم الهاتف الجديد مستخدم بالفعل لحساب آخر نشط', 400);
+      }
+      throw error;
+    }
   }
 
   /**
    * الحذف الناعم (Soft Delete) للمشرف للحفاظ على سجلاته التاريخية
    */
   async deleteSupervisor(supervisorId, orgId) {
+    //  الترقية المعمارية: منع إعادة حذف السجلات الميتة لتخفيف الضغط على الداتا بيز
     const supervisor = await User.findOneAndUpdate(
-      { _id: supervisorId, organization_id: orgId, role: 'SUPERVISOR' },
+      { _id: supervisorId, organization_id: orgId, role: 'SUPERVISOR', deleted_at: null },
       { 
         deleted_at: new Date(), 
         status: 'SUSPENDED',
-        current_session_id: crypto.randomBytes(16).toString('hex') // طرده فوراً
+        current_session_id: crypto.randomBytes(16).toString('hex') 
       },
       { new: true }
     );
 
-    if (!supervisor) throw new AppError('المشرف غير موجود', 404);
+    if (!supervisor) throw new AppError('المشرف غير موجود أو تم حذفه بالفعل', 404);
     return true;
   }
 }

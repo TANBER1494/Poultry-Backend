@@ -22,27 +22,30 @@ class FarmService {
   async createFarm(data, orgId) {
     const { name, location, farm_type, max_capacity, has_feed_mill } = data;
 
-    const existingFarm = await Farm.findOne({ organization_id: orgId, name: name.trim() }).lean();
-    if (existingFarm) {
-      throw new AppError('يوجد مزرعة بهذا الاسم بالفعل مسجلة في النظام', 400);
-    }
-
     const trialEndsAt = new Date();
     trialEndsAt.setDate(trialEndsAt.getDate() + 14);
 
-    const newFarm = await Farm.create({
-      organization_id: orgId,
-      name: name.trim(),
-      location: location.trim(),
-      farm_type: farm_type,
-      max_capacity: Number(max_capacity),
-      has_feed_mill: has_feed_mill || false,
-      subscription_status: 'TRIAL',
-      monthly_fee: 0,
-      trial_ends_at: trialEndsAt
-    });
+    try {
+      // 🛡️ الترقية المعمارية: إزالة الاستعلام المسبق، والاعتماد على صد محرك البيانات للتكرار
+      const newFarm = await Farm.create({
+        organization_id: orgId,
+        name: name.trim(),
+        location: location.trim(),
+        farm_type: farm_type,
+        max_capacity: Number(max_capacity),
+        has_feed_mill: has_feed_mill || false,
+        subscription_status: 'TRIAL',
+        monthly_fee: 0,
+        trial_ends_at: trialEndsAt
+      });
 
-    return newFarm;
+      return newFarm;
+    } catch (error) {
+      if (error.code === 11000) {
+        throw new AppError('يوجد مزرعة بهذا الاسم بالفعل مسجلة في مؤسستك', 400);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -78,8 +81,16 @@ class FarmService {
     if (updates.max_capacity !== undefined) farm.max_capacity = Number(updates.max_capacity);
     if (updates.has_feed_mill !== undefined) farm.has_feed_mill = Boolean(updates.has_feed_mill);
 
-    await farm.save();
-    return farm;
+    try {
+      await farm.save();
+      return farm;
+    } catch (error) {
+      // التقاط محاولة تغيير اسم المزرعة لاسم مزرعة أخرى موجودة مسبقاً
+      if (error.code === 11000) {
+        throw new AppError('لا يمكن التحديث، يوجد مزرعة أخرى تمتلك نفس الاسم', 400);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -94,7 +105,15 @@ class FarmService {
     if (action === 'SUSPEND') {
       farm.subscription_status = 'LOCKED';
     } else if (action === 'REACTIVATE') {
-      farm.subscription_status = (farm.trial_ends_at && farm.trial_ends_at > new Date()) ? 'TRIAL' : 'ACTIVE';
+      // 🛡️ الترقية المعمارية: سد ثغرة الوصول المجاني بفحص التواريخ بدقة لحظية
+      const now = new Date();
+      if (farm.subscription_ends_at && farm.subscription_ends_at > now) {
+        farm.subscription_status = 'ACTIVE';
+      } else if (farm.trial_ends_at && farm.trial_ends_at > now) {
+        farm.subscription_status = 'TRIAL';
+      } else {
+        farm.subscription_status = 'OVERDUE';
+      }
     }
 
     await farm.save();
@@ -105,14 +124,13 @@ class FarmService {
    * الحذف النهائي مع فحص القيود المرجعية المتوازي (Optimized)
    */
   async deleteFarm(farmId, orgId) {
-    // تنفيذ استعلامات الفحص بشكل متوازٍ لتقليل وقت الاستجابة
     const [hasBarns, hasCycles, hasUsers] = await Promise.all([
       Barn.exists({ farm_id: farmId }),
       Cycle.exists({ farm_id: farmId }),
       User.exists({ farm_id: farmId, deleted_at: null })
     ]);
 
-    if (hasBarns) throw new AppError('لا يمكن حذف المزرعة لوجود عنابر مسجلة بها. يجب حذف العنابر أولاً.', 400);
+    if (hasBarns) throw new AppError('لا يمكن حذف المزرعة لوجود عنابر مسجلة بها. يجب أرشفة أو حذف العنابر أولاً.', 400);
     if (hasCycles) throw new AppError('لا يمكن حذف المزرعة لوجود سجلات دورات إنتاج مرتبطة بها.', 400);
     if (hasUsers) throw new AppError('يجب نقل أو حذف المشرفين المربوطين بهذه المزرعة أولاً.', 400);
 

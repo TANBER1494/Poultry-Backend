@@ -29,8 +29,8 @@ const userSchema = new mongoose.Schema(
     phone: {
       type: String,
       required: [true, 'رقم الهاتف مطلوب'],
-      unique: true,
-      index: true,
+      match: [/^(01[0125][0-9]{8})$/, 'رقم الهاتف غير صالح، يجب أن يكون رقماً مصرياً صحيحاً']
+      // تم إزالة unique: true من هنا لنقلها إلى مستوى الـ Schema لدعم الحذف الناعم
     },
     password_hash: {
       type: String,
@@ -38,6 +38,11 @@ const userSchema = new mongoose.Schema(
       select: false,
     },
     current_session_id: {
+      type: String,
+      default: null,
+    },
+    //  التطوير المعماري 1: إصلاح ثغرة الإشعارات الحرجة
+    fcm_token: {
       type: String,
       default: null,
     },
@@ -70,6 +75,12 @@ const userSchema = new mongoose.Schema(
   {
     timestamps: true,
   }
+);
+
+//  التطوير المعماري 2: فهرس فريد يسمح بتسجيل رقم هاتف لموظف جديد إذا كان القديم محذوفاً
+userSchema.index(
+  { phone: 1 }, 
+  { unique: true, partialFilterExpression: { deleted_at: null } }
 );
 
 module.exports = mongoose.model('User', userSchema);

@@ -8,6 +8,12 @@ const transactionSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    //  التطوير المعماري: ضروري جداً لتقارير المركز المالي المجمعة
+    organization_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Organization',
+      index: true,
+    },
     farm_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Farm',
@@ -37,11 +43,11 @@ const transactionSchema = new mongoose.Schema(
     performed_by: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true, // من أودع أو سحب الفلوس؟
+      required: true, 
     },
     type: {
       type: String,
-      enum: ['IN', 'OUT'], // وارد للخزنة، منصرف من الخزنة
+      enum: ['IN', 'OUT'], 
       required: true,
     },
     category: {
@@ -82,13 +88,14 @@ const transactionSchema = new mongoose.Schema(
     reference_doc: {
       type: String,
       trim: true,
-      default: '', // مثال: "رقم وصل السلفة" أو "فاتورة بيع البيض رقم 1"
+      default: '', 
     },
   },
   { timestamps: true }
 );
 
-// فهارس لتسريع التقارير المالية (حساب أرباح الدورة، أو كشف حساب سلف العامل)
+//  التطوير المعماري: فهرس مجمع لتسريع استخراج المركز المالي للمؤسسة بالكامل مرتباً زمنياً
+transactionSchema.index({ organization_id: 1, transaction_date: -1 });
 transactionSchema.index({ farm_id: 1, type: 1 });
 transactionSchema.index({ cycle_id: 1 });
 transactionSchema.index({ worker_id: 1, category: 1 });
