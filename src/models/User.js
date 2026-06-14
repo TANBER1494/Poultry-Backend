@@ -21,16 +21,24 @@ const userSchema = new mongoose.Schema(
       required: [true, 'اسم المستخدم مطلوب'],
       trim: true,
     },
+    //  التعديل الجديد: إضافة البريد الإلكتروني مع دعم الـ Sparse للعمال
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      unique: true,
+      sparse: true, 
+      match: [/^\S+@\S+\.\S+$/, 'صيغة البريد الإلكتروني غير صالحة'],
+    },
     role: {
       type: String,
-      enum: ['SUPER_ADMIN', 'OWNER', 'SUPERVISOR'],
+      enum: ['SUPER_ADMIN', 'OWNER', 'SUPERVISOR', 'WORKER'],
       required: true,
     },
     phone: {
       type: String,
       required: [true, 'رقم الهاتف مطلوب'],
       match: [/^(01[0125][0-9]{8})$/, 'رقم الهاتف غير صالح، يجب أن يكون رقماً مصرياً صحيحاً']
-      // تم إزالة unique: true من هنا لنقلها إلى مستوى الـ Schema لدعم الحذف الناعم
     },
     password_hash: {
       type: String,
@@ -41,15 +49,27 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
-    //  التطوير المعماري 1: إصلاح ثغرة الإشعارات الحرجة
     fcm_token: {
       type: String,
       default: null,
     },
+    //  التعديل الجديد: حقول الـ OTP المدمجة (مخفية افتراضياً للأمان)
+    otp_code: {
+      type: String,
+      select: false,
+    },
+    otp_expires_at: {
+      type: Date,
+      select: false,
+    },
+    otp_last_sent_at: {
+      type: Date,
+      select: false,
+    },
     status: {
       type: String,
-      enum: ['ACTIVE', 'SUSPENDED', 'TERMINATED'],
-      default: 'ACTIVE',
+      enum: ['ACTIVE', 'SUSPENDED', 'TERMINATED', 'PENDING'],
+      default: 'PENDING',
     },
     hiring_date: {
       type: Date,
@@ -77,7 +97,6 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-//  التطوير المعماري 2: فهرس فريد يسمح بتسجيل رقم هاتف لموظف جديد إذا كان القديم محذوفاً
 userSchema.index(
   { phone: 1 }, 
   { unique: true, partialFilterExpression: { deleted_at: null } }

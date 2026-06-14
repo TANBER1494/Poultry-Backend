@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>أداة اختبار Firebase Phone Auth</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+        input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        textarea { width: 100%; height: 150px; margin-top: 10px; direction: ltr; }
+        .box { border: 1px solid #ccc; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+    <h2>أداة استخراج idToken (لـ Postman)</h2>
+
+    <div class="box">
+        <label>1. أدخل رقم الهاتف (نفس الرقم الذي أضفته كـ Test number، مثال: +201012345678):</label>
+        <input type="text" id="phoneNumber" placeholder="+2010...">
+        <div id="recaptcha-container"></div>
+        <button onclick="sendOTP()">إرسال الـ OTP</button>
+    </div>
+
+    <div class="box" id="otpBox" style="display:none;">
+        <label>2. أدخل كود التحقق (الكود الثابت الذي اخترته، مثال: 123456):</label>
+        <input type="text" id="otpCode" placeholder="123456">
+        <button onclick="verifyOTP()">تحقق واستخرج التوكن</button>
+    </div>
+
+    <div class="box">
+        <label>3. التوكن الخاص بك (انسخه وضعه في Postman):</label>
+        <textarea id="tokenResult" readonly placeholder="سيظهر التوكن هنا..."></textarea>
+    </div>
+
+    <script>
+        //  ضع مفاتيح مشروعك هنا 
+        const firebaseConfig = {
+            apiKey: "AIzaSyDMHNFPu7Npcdz7KS12nOWdXHFq4_IRjZo",
+            authDomain: "poultry-farm-erp.firebaseapp.com",
+            projectId: "poultry-farm-erp",
+            // باقي الحقول اختيارية في هذه الأداة
+        };
+
+        // تهيئة فايربيز
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        auth.languageCode = 'ar';
+
+        let confirmationResult;
+
+        // إعداد الـ reCAPTCHA المخفية
+        window.recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
+            'size': 'invisible'
+        });
+
+        function sendOTP() {
+            const phoneNumber = document.getElementById('phoneNumber').value;
+            auth.signInWithPhoneNumber(phoneNumber, window.recaptchaVerifier)
+                .then((result) => {
+                    confirmationResult = result;
+                    document.getElementById('otpBox').style.display = 'block';
+                    alert("تم إرسال الكود بنجاح (استخدم الكود الثابت للاختبار)");
+                }).catch((error) => {
+                    console.error(error);
+                    alert("حدث خطأ: " + error.message);
+                });
+        }
+
+        function verifyOTP() {
+            const code = document.getElementById('otpCode').value;
+            confirmationResult.confirm(code).then((result) => {
+                // استخراج التوكن الطويل idToken
+                result.user.getIdToken().then((idToken) => {
+                    document.getElementById('tokenResult').value = idToken;
+                    alert("تم استخراج التوكن بنجاح! انسخه الآن.");
+                });
+            }).catch((error) => {
+                console.error(error);
+                alert("الكود خاطئ: " + error.message);
+            });
+        }
+    </script>
+</body>
+</html>

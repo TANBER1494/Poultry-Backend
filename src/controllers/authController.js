@@ -3,18 +3,27 @@ const AppError = require('../utils/AppError');
 const authService = require('../services/authService');
 
 const registerOwner = asyncHandler(async (req, res, next) => {
-  const { name, phone, password, organization_name, farm_name } = req.body;
+  const { name, phone, email, password, organization_name, farm_name } = req.body;
 
-  if (!name || !phone || !password || !organization_name || !farm_name) {
-    return next(
-      new AppError('جميع بيانات المالك والمزرعة الأساسية مطلوبة', 400)
-    );
+  if (!name || !phone || !email || !password || !organization_name || !farm_name) {
+    return next(new AppError('جميع البيانات الأساسية مطلوبة بما فيها البريد الإلكتروني', 400));
   }
 
   const result = await authService.registerOwner(req.body);
 
   res.status(201).json({
-    message: 'تم تأسيس النظام بنجاح',
+    message: result.message // يرجع رسالة نجاح الإرسال فقط
+  });
+});
+
+//  إضافة كنترولر التفعيل
+const verifyRegistration = asyncHandler(async (req, res, next) => {
+  const { email, otp } = req.body;
+
+  const result = await authService.verifyRegistration(email, otp);
+
+  res.status(200).json({
+    message: 'تم تفعيل الحساب بنجاح',
     token: result.accessToken,
     refresh_token: result.refreshToken,
     data: {
@@ -23,6 +32,12 @@ const registerOwner = asyncHandler(async (req, res, next) => {
       farm: result.farm,
     },
   });
+});
+
+//  إضافة كنترولر إعادة الإرسال
+const resendActivationOTP = asyncHandler(async (req, res, next) => {
+  await authService.resendActivationOTP(req.body.email);
+  res.status(200).json({ message: 'تم إعادة إرسال كود التفعيل إلى بريدك الإلكتروني' });
 });
 
 const login = asyncHandler(async (req, res, next) => {
@@ -41,6 +56,54 @@ const login = asyncHandler(async (req, res, next) => {
     user: result.user,
   });
 });
+
+// ==========================================
+//  متحكمات استعادة كلمة المرور (Resend + OTP)
+// ==========================================
+
+/**
+ * @desc    Request Password Reset OTP
+ * @route   POST /api/auth/forgot-password
+ * @access  Public
+ */
+const forgotPassword = asyncHandler(async (req, res, next) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return next(new AppError('يرجى إدخال البريد الإلكتروني', 400));
+  }
+
+  await authService.forgotPassword(email);
+
+  res.status(200).json({
+    message: 'تم إرسال كود التحقق (OTP) إلى بريدك الإلكتروني بنجاح',
+  });
+});
+
+/**
+ * @desc    Verify OTP and Reset Password
+ * @route   POST /api/auth/reset-password
+ * @access  Public
+ */
+const resetPassword = asyncHandler(async (req, res, next) => {
+  const { email, otp, new_password, confirm_password } = req.body;
+
+  if (!email || !otp || !new_password || !confirm_password) {
+    return next(new AppError('جميع الحقول مطلوبة لإعادة تعيين كلمة المرور', 400));
+  }
+
+  if (new_password !== confirm_password) {
+    return next(new AppError('كلمة المرور غير متطابقة', 400));
+  }
+
+  await authService.resetPasswordWithOTP(email, otp, new_password);
+
+  res.status(200).json({
+    message: 'تم تغيير كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة.',
+  });
+});
+
+// ==========================================
 
 const refreshToken = asyncHandler(async (req, res, next) => {
   const { refresh_token } = req.body;
@@ -66,6 +129,10 @@ const updateFcmToken = asyncHandler(async (req, res, next) => {
 module.exports = {
   registerOwner,
   login,
+  forgotPassword,
+  resetPassword,
   refreshToken,
   updateFcmToken,
+  verifyRegistration,
+  resendActivationOTP,
 };
