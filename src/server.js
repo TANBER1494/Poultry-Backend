@@ -45,12 +45,8 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
-      callback(null, true);
-    } else {
-      callback(new Error('إجراء أمني: غير مصرح لك بالوصول - CORS Policy'));
-    }
+    // قبول كل النطاقات مؤقتاً في بيئة الـ Staging (أو ضع رابط الفرونت إند هنا لاحقاً)
+    return callback(null, true);
   },
   credentials: true 
 }));
@@ -103,7 +99,7 @@ app.use('/api/merchants', merchantRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/workers', workerRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/payments', platformPaymentRoutes);
+app.use('/api/platform-payments', platformPaymentRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', adminRoutes);

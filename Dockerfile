@@ -1,19 +1,26 @@
-# استخدام نسخة خفيفة من Node.js
+# استخدام نسخة خفيفة وآمنة من Node.js
 FROM node:18-alpine
 
-# تحديد مجلد العمل داخل الحاوية
+# إنشاء مستخدم غير الـ root لزيادة الأمان (مطلوب في منصات مثل Hugging Face)
+RUN adduser -D user
+USER user
+
+# تحديد مجلد العمل
 WORKDIR /app
 
-# نسخ ملفات الـ package وتثبيت الحزم
-COPY package*.json ./
-RUN npm install
+# نسخ ملفات الحزم
+COPY --chown=user:user package*.json ./
+
+# تثبيت الحزم (لبيئة الإنتاج فقط لتقليل الحجم)
+RUN npm install --production
 
 # نسخ باقي ملفات المشروع
-COPY . .
+COPY --chown=user:user . .
 
-# 🚀 إجبار الحاوية على استخدام البورت الذي تطلبه منصة Hugging Face
+# فضح المنفذ الافتراضي لـ Hugging Face
 EXPOSE 7860
 ENV PORT=7860
+ENV NODE_ENV=production
 
 # تشغيل السيرفر
 CMD ["npm", "start"]

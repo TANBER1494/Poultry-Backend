@@ -3,6 +3,7 @@ const Barn = require('../models/Barn');
 const Cycle = require('../models/Cycle');
 const User = require('../models/User');
 const AppError = require('../utils/AppError');
+const InventoryItem = require('../models/InventoryItem');
 
 class FarmService {
   /**
@@ -56,14 +57,20 @@ class FarmService {
       .sort({ createdAt: -1 })
       .lean();
 
-    return farmsRaw.map(farm => {
+    //  التعديل هنا: جلب وحساب إجمالي العلف لكل مزرعة
+    return await Promise.all(farmsRaw.map(async (farm) => {
       const targetDate = farm.subscription_status === 'TRIAL' ? farm.trial_ends_at : farm.subscription_ends_at;
+      
+      const feedItems = await InventoryItem.find({ farm_id: farm._id, organization_id: orgId, category: 'FEED', deleted_at: null }).lean();
+      const totalFeed = feedItems.reduce((acc, item) => acc + item.stock_quantity, 0);
+
       return {
         ...farm,
         status: farm.subscription_status,
-        days_left: this._calculateDaysLeft(targetDate)
+        days_left: this._calculateDaysLeft(targetDate),
+        total_feed_stock: totalFeed // إرسال إجمالي العلف للفرونت إند
       };
-    });
+    }));
   }
 
   /**

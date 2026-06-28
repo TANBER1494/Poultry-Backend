@@ -52,12 +52,24 @@ const cycleSchema = new mongoose.Schema(
       required: [true, 'العدد الابتدائي للطيور مطلوب'],
       min: 1,
     },
-    //  التطوير المعماري: منع نزول رصيد الطيور تحت الصفر نهائياً
     current_bird_count: {
       type: Number,
       required: true,
       min: [0, 'لا يمكن أن يكون رصيد الطيور بالسالب'],
     },
+    total_sold_birds: { type: Number, default: 0, min: 0 },
+    total_dead_birds: { type: Number, default: 0, min: 0 },
+
+    feed_custody: [
+      {
+        item_id: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryItem' },
+        quantity: { type: Number, default: 0, min: 0 },
+      },
+    ],
+    // الترقية المعمارية: إضافة عدادات لمنتجات الدورة الأخرى
+    total_sold_eggs: { type: Number, default: 0, min: 0 },
+    total_sold_manure: { type: Number, default: 0, min: 0 },
+
     total_expenses: { type: Number, default: 0 },
     total_revenue: { type: Number, default: 0 },
     net_profit: { type: Number, default: 0 },
@@ -68,11 +80,12 @@ const cycleSchema = new mongoose.Schema(
 );
 
 cycleSchema.index({ farm_id: 1, status: 1 });
-
-//  التطوير المعماري: منع وجود دورتين (تجهيز أو نشطة) في نفس العنبر في اللحظة ذاتها
 cycleSchema.index(
   { barn_id: 1 },
-  { unique: true, partialFilterExpression: { status: { $in: ['PREPARATION', 'ACTIVE'] } } }
+  {
+    unique: true,
+    partialFilterExpression: { status: { $in: ['PREPARATION', 'ACTIVE'] } },
+  }
 );
 
 module.exports = mongoose.model('Cycle', cycleSchema);

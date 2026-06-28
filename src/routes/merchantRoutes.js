@@ -6,7 +6,9 @@ const {
   getMerchants,
   updateMerchant,
   getMerchantStatement,
-  deleteMerchant
+  deleteMerchant,
+  addRepresentative,
+  removeRepresentative
 } = require('../controllers/merchantController');
 
 const { protect } = require('../middlewares/authMiddleware');
@@ -26,5 +28,7 @@ router.get('/:id/statement', authorize('OWNER'), getMerchantStatement);
 
 // مسار جلب القائمة (متاح للمالك والمشرف لاستخدامه في إنشاء الفواتير)
 router.get('/farm/:farm_id', authorize('OWNER', 'SUPERVISOR'), getMerchants);
+router.post('/:id/representatives', authorize('OWNER'), checkSubscription, addRepresentative);
+router.delete('/:id/representatives/:rep_id', authorize('OWNER'), checkSubscription, removeRepresentative);
 
 module.exports = router;

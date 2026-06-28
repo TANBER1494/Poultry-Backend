@@ -21,12 +21,21 @@ const inventoryItemSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ['FEED', 'MEDICATION', 'VACCINE', 'DISINFECTANT', 'OTHER'],
+      // التعديل: إضافة PRODUCT (منتج تام)
+      enum: [
+        'FEED',
+        'MEDICATION',
+        'VACCINE',
+        'DISINFECTANT',
+        'PRODUCT',
+        'OTHER',
+      ],
       required: true,
     },
     unit: {
       type: String,
-      enum: ['BAG', 'TON', 'LITER', 'BOTTLE', 'KG', 'PIECE'],
+      //  التعديل: إضافة TRAY (طبق/كرتونة)
+      enum: ['BAG', 'TON', 'LITER', 'BOTTLE', 'KG', 'PIECE', 'TRAY'],
       required: true,
     },
     stock_quantity: {

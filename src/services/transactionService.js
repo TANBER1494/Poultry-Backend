@@ -55,7 +55,7 @@ class TransactionService {
         const paymentStatus = updatedInvoice.remaining_amount === 0 ? 'PAID' : 'PARTIAL';
         await Invoice.updateOne(
           { _id: invoice_id }, 
-          { paymentStatus: paymentStatus }, 
+          { payment_status: paymentStatus }, 
           { session }
         );
       } 

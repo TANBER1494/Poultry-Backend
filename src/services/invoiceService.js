@@ -11,7 +11,7 @@ class InvoiceService {
    */
   async createInvoice(data, userId, orgId) {
     const {
-      local_id, farm_id, merchant_id, cycle_id, invoice_type,
+      local_id, farm_id, merchant_id, representative_name, cycle_id, invoice_type,
       items, total_amount, paid_amount, invoice_date, due_date, notes, transaction_category
     } = data;
 
@@ -47,6 +47,7 @@ class InvoiceService {
         local_id,
         farm_id,
         merchant_id,
+        representative_name: representative_name || '', 
         cycle_id: cycle_id || null,
         created_by: userId,
         invoice_type,
@@ -111,8 +112,8 @@ class InvoiceService {
       if (filters.end_date) query.invoice_date.$lte = new Date(filters.end_date);
     }
 
-    return await Invoice.find(query)
-      .populate('merchant_id', 'name merchant_type phone')
+return await Invoice.find(query)
+      .populate('merchant_id', 'company_name merchant_type phone') 
       .populate('created_by', 'name role')
       .sort({ invoice_date: -1 })
       .lean();

@@ -18,20 +18,22 @@ const getSettings = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const updatePhone = asyncHandler(async (req, res, next) => {
-  const { new_phone } = req.body;
+  const { new_phone, name } = req.body;
 
-  const result = await settingsService.updatePhone(req.user._id, new_phone);
+  const result = await settingsService.updatePhone(req.user._id, new_phone, name);
 
   if (result.isSame) {
     return res.status(200).json({
-      message: 'تم إدخال رقم الهاتف الحالي للمستخدم',
+      message: 'تم إدخال نفس البيانات الحالية',
       phone: result.phone,
+      name: result.name
     });
   }
 
   res.status(200).json({ 
-    message: 'تم تحديث رقم الهاتف بنجاح', 
-    phone: result.phone 
+    message: 'تم تحديث البيانات بنجاح', 
+    phone: result.phone,
+    name: result.name
   });
 });
 

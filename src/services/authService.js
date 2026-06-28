@@ -289,6 +289,11 @@ class AuthService {
       throw new AppError('كود التحقق غير صحيح', 400);
     }
 
+    const isSamePassword = await bcrypt.compare(newPassword, user.password_hash);
+    if (isSamePassword) {
+      throw new AppError('لأسباب أمنية، يجب أن تكون كلمة المرور الجديدة مختلفة عن كلمة المرور الحالية', 400);
+    }
+    
     // 3. تشفير وحفظ الباسوورد الجديدة
     const salt = await bcrypt.genSalt(10);
     user.password_hash = await bcrypt.hash(newPassword, salt);

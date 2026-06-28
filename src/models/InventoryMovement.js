@@ -34,7 +34,7 @@ const inventoryMovementSchema = new mongoose.Schema(
       ref: 'User',
       required: true, 
     },
-    movement_type: {
+   movement_type: {
       type: String,
       enum: [
         'PRODUCTION',    
@@ -42,7 +42,9 @@ const inventoryMovementSchema = new mongoose.Schema(
         'PURCHASE',      
         'CONSUMPTION',   
         'ADJUSTMENT',    
-        'RETURN'         //  التطوير المعماري: إصلاح الثغرة القاتلة (تم إضافتها هنا لتتوافق مع الـ Controller)
+        'RETURN',
+        'SALE',
+        'BARN_TRANSFER' 
       ],
       required: true,
     },

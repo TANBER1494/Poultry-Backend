@@ -6,7 +6,7 @@ const {
   getFarmCycles,
   getCycleDetails,
   closeCycle,
-  sellCycleBirds
+  recordCycleSale
 } = require('../controllers/cycleController');
 
 const { protect } = require('../middlewares/authMiddleware');
@@ -19,7 +19,7 @@ router.use(protect);
 // مسارات التشغيل المالي والإداري (حكر على المالك + تتطلب اشتراك فعال)
 router.post('/', authorize('OWNER'), checkSubscription, startCycle);
 router.put('/:id/close', authorize('OWNER'), checkSubscription, closeCycle);
-router.post('/:id/sell', authorize('OWNER'), checkSubscription, sellCycleBirds);
+router.post('/:id/sales', authorize('OWNER', 'SUPERVISOR'), checkSubscription, recordCycleSale);
 // مسارات القراءة والمتابعة (متاحة للمالك والمشرف)
 router.get('/farm/:farm_id', authorize('OWNER', 'SUPERVISOR'), getFarmCycles);
 router.get('/:id', authorize('OWNER', 'SUPERVISOR'), getCycleDetails);

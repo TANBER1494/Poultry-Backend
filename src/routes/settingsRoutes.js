@@ -11,7 +11,7 @@ const {
 
 // Security Middleware
 router.use(protect);
-router.use(authorize('OWNER', 'SUPER_ADMIN'));
+router.use(authorize('OWNER', 'SUPER_ADMIN', 'SUPERVISOR'));
 
 // Settings Management Routes
 router.get('/', getSettings);

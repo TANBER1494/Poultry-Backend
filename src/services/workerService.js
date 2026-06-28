@@ -7,17 +7,28 @@ const AppError = require('../utils/AppError');
 
 class WorkerService {
   /**
-   * حساب الرصيد الصافي للعامل باستخدام Aggregation لضمان الأداء الفائق
+   * حساب الرصيد الصافي للعامل باستخدام Aggregation لضمان الأداء الفائق (دورة العمل الحالية فقط)
    * @private
    */
   async _calculateWorkerBalance(workerId, orgId) {
     const workerObjectId = new mongoose.Types.ObjectId(workerId);
     const orgObjectId = new mongoose.Types.ObjectId(orgId);
 
-    //  الترقية المعمارية: تضمين orgId في الـ Aggregation لأمان مطلق
+    // 🛡️ الترقية المعمارية: جلب العامل لمعرفة تاريخ بدء دورة عمله الحالية (hiring_date)
+    const worker = await Worker.findOne({ _id: workerObjectId, organization_id: orgObjectId }).lean();
+    if (!worker) return { totalEarned: 0, totalDrawn: 0, netBalance: 0 };
+
+    const periodStart = worker.hiring_date;
+
     const [earnedResult, drawnResult] = await Promise.all([
       WorkerLog.aggregate([
-        { $match: { worker_id: workerObjectId, organization_id: orgObjectId } },
+        { 
+          $match: { 
+            worker_id: workerObjectId, 
+            organization_id: orgObjectId,
+            log_date: { $gte: periodStart } // 🛡️ تجميع للفترة الحالية فقط
+          } 
+        },
         { $group: { _id: null, total: { $sum: '$earned_amount' } } }
       ]),
       Transaction.aggregate([
@@ -26,7 +37,8 @@ class WorkerService {
             worker_id: workerObjectId, 
             organization_id: orgObjectId,
             type: 'OUT', 
-            category: { $in: ['WORKER_ADVANCE', 'WORKER_SALARY'] } 
+            category: { $in: ['WORKER_ADVANCE', 'WORKER_SALARY'] },
+            transaction_date: { $gte: periodStart } // 🛡️ تجميع للفترة الحالية فقط
           } 
         },
         { $group: { _id: null, total: { $sum: '$amount' } } }
@@ -49,7 +61,6 @@ class WorkerService {
     if (!farm) throw new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403);
 
     try {
-      //  الترقية المعمارية: حقن orgId الإلزامي لإنقاذ العملية من الانهيار
       return await Worker.create({
         organization_id: orgId, 
         farm_id,
@@ -70,7 +81,6 @@ class WorkerService {
    * جلب قائمة العمال
    */
   async getWorkers(farmId, orgId, filters) {
-    //  الترقية المعمارية: استعلام واحد مباشر O(1) بدلاً من استعلامين متتاليين
     const query = { farm_id: farmId, organization_id: orgId };
     if (filters.status) query.status = filters.status;
 
@@ -86,20 +96,17 @@ class WorkerService {
     const existingLogByLocalId = await WorkerLog.findOne({ local_id }).lean();
     if (existingLogByLocalId) return { isDuplicate: true, log: existingLogByLocalId };
 
-    //  التوثيق السريع بخطوة واحدة
     const worker = await Worker.findOne({ _id: worker_id, organization_id: orgId }).lean();
     if (!worker || worker.status === 'TERMINATED') {
       throw new AppError('العامل غير موجود أو تم إنهاء عمله', 404);
     }
 
-    //  الترقية المعمارية: توحيد التاريخ للـ UTC لإجبار الداتا بيز على صد التكرار تلقائياً
     const normalizedLogDate = new Date(log_date);
     normalizedLogDate.setUTCHours(0, 0, 0, 0);
 
     const earnedAmount = worker.base_daily_wage * Number(wage_multiplier);
 
     try {
-      //  الترقية المعمارية: حقن orgId الإلزامي
       const newLog = await WorkerLog.create({
         local_id,
         organization_id: orgId, 
@@ -125,14 +132,18 @@ class WorkerService {
    * جلب كشف حساب العامل
    */
   async getWorkerStatement(workerId, orgId) {
-    //  توثيق وجلب بـ O(1)
     const worker = await Worker.findOne({ _id: workerId, organization_id: orgId }).lean();
     if (!worker) throw new AppError('العامل غير موجود أو لا تملك صلاحية الوصول له', 404);
 
+    const periodStart = worker.hiring_date; // 🛡️ نقطة البداية للدورة الحالية
+
     const { totalEarned, totalDrawn, netBalance } = await this._calculateWorkerBalance(workerId, orgId);
 
-    //  حقن orgId في الاستعلامات لتأمين (IDOR) بشكل قاطع
-    const logs = await WorkerLog.find({ worker_id: workerId, organization_id: orgId })
+    const logs = await WorkerLog.find({ 
+      worker_id: workerId, 
+      organization_id: orgId,
+      log_date: { $gte: periodStart } // 🛡️ إخفاء الفترات القديمة
+    })
       .select('log_date wage_multiplier earned_amount notes')
       .sort({ log_date: -1 })
       .lean();
@@ -141,7 +152,8 @@ class WorkerService {
       worker_id: workerId, 
       organization_id: orgId,
       type: 'OUT', 
-      category: { $in: ['WORKER_ADVANCE', 'WORKER_SALARY'] } 
+      category: { $in: ['WORKER_ADVANCE', 'WORKER_SALARY'] },
+      transaction_date: { $gte: periodStart } // 🛡️ إخفاء الفترات القديمة
     })
       .select('amount transaction_date category notes reference_doc')
       .sort({ transaction_date: -1 })
@@ -172,11 +184,9 @@ class WorkerService {
     const existingTransaction = await Transaction.findOne({ local_id }).lean();
     if (existingTransaction) return { isDuplicate: true, transaction: existingTransaction };
 
-    //  توثيق بخطوة واحدة
     const worker = await Worker.findOne({ _id: worker_id, organization_id: orgId }).lean();
     if (!worker) throw new AppError('العامل غير موجود أو لا تملك صلاحية الوصول له', 404);
 
-    //  الترقية المعمارية: حقن orgId الإلزامي لإنقاذ عملية الخزينة
     const newTransaction = await Transaction.create({
       local_id,
       organization_id: orgId, 
@@ -195,7 +205,7 @@ class WorkerService {
   }
 
   /**
-   * تغيير حالة العامل
+   * تغيير حالة العامل (إجازة / تصفية / إعادة تعيين)
    */
   async changeStatus(workerId, status, orgId) {
     const worker = await Worker.findOne({ _id: workerId, organization_id: orgId });
@@ -203,11 +213,20 @@ class WorkerService {
 
     if (status === 'TERMINATED') {
       const { netBalance } = await this._calculateWorkerBalance(workerId, orgId);
+      
+      // 🛡️ الترقية المعمارية (الشرط الصفري للإخلاء)
       if (netBalance < 0) {
-        throw new AppError(`لا يمكن إنهاء عمل العامل وعليه مديونية (سلف غير مسددة) بقيمة ${Math.abs(netBalance)} ج.م`, 400);
+        throw new AppError(`لا يمكن إنهاء عمل العامل وعليه مديونية (سلف غير مسددة) بقيمة ${Math.abs(netBalance)} ج.م.`, 400);
+      }
+      if (netBalance > 0) {
+        throw new AppError(`لا يمكن تصفية العامل، له مستحقات متأخرة بقيمة ${netBalance} ج.م. قم بصرفها أولاً.`, 400);
       }
       worker.termination_date = new Date();
     } else {
+      // 🛡️ الترقية المعمارية (بدء دورة مالية جديدة)
+      if (worker.status === 'TERMINATED' && status === 'ACTIVE') {
+        worker.hiring_date = new Date(); // تصفير العدادات للمرحلة الجديدة
+      }
       worker.termination_date = null; 
     }
 

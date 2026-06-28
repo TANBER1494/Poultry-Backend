@@ -50,6 +50,11 @@ const workerSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    recorded_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: false,
+    },
   },
   { timestamps: true }
 );

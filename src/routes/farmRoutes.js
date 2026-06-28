@@ -11,16 +11,17 @@ const {
 const { protect } = require('../middlewares/authMiddleware');
 const { authorize } = require('../middlewares/roleMiddleware');
 
-// Security Middleware: OWNER Only
+// تفعيل حماية تسجيل الدخول لجميع المسارات
 router.use(protect);
-router.use(authorize('OWNER')); 
 
-// Farms Management Routes
-router.post('/', addFarm);
-router.get('/', getFarms);
-router.put('/:id', updateFarmSettings);
-router.delete('/:id', suspendFarm);
-router.put('/:id/reactivate', reactivateFarm); 
-router.delete('/:id/hard-delete', hardDeleteFarm);
+//  مسار الجلب: متاح للمالك والمشرف
+router.get('/', authorize('OWNER', 'SUPERVISOR'), getFarms);
+
+//  باقي المسارات حكر على المالك فقط (لا نستخدم router.use هنا)
+router.post('/', authorize('OWNER'), addFarm);
+router.put('/:id', authorize('OWNER'), updateFarmSettings);
+router.delete('/:id', authorize('OWNER'), suspendFarm);
+router.put('/:id/reactivate', authorize('OWNER'), reactivateFarm); 
+router.delete('/:id/hard-delete', authorize('OWNER'), hardDeleteFarm);
 
 module.exports = router;

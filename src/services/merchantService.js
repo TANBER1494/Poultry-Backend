@@ -5,57 +5,45 @@ const Transaction = require('../models/Transaction');
 const AppError = require('../utils/AppError');
 
 class MerchantService {
-  /**
-   * إضافة تاجر جديد
-   */
   async createMerchant(data, orgId) {
-    const { farm_id, name, merchant_type, phone, address, opening_balance } = data;
+    const { farm_id, company_name, merchant_type, company_phone, address, opening_balance, representatives } = data;
 
-    // هنا نحتاج استعلام المزرعة لمرة واحدة فقط للتأكد من وجودها قبل الربط
     const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
     if (!farm) throw new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403);
 
     try {
-      //  الترقية المعمارية: الاعتماد على الفهرس المركب لمنع التكرار بدلاً من الاستعلام اليدوي
       return await Merchant.create({
         organization_id: orgId, 
         farm_id,
-        name: name.trim(),
+        company_name: company_name.trim(),
         merchant_type,
-        phone: phone ? phone.trim() : '',
+        company_phone: company_phone ? company_phone.trim() : '',
         address: address ? address.trim() : '',
-        opening_balance: Number(opening_balance) || 0
+        opening_balance: Number(opening_balance) || 0,
+        representatives: Array.isArray(representatives) ? representatives : []
       });
     } catch (error) {
       if (error.code === 11000) {
-        throw new AppError('هذا التاجر أو المورد مسجل بالفعل بهذا النشاط في النظام', 400);
+        throw new AppError('هذه الشركة مسجلة بالفعل بنفس النشاط في النظام', 400);
       }
       throw error;
     }
   }
 
-  /**
-   * جلب قائمة التجار مع الفلاتر
-   */
   async getMerchants(farmId, orgId, filters) {
-    //  الترقية المعمارية: توفير استعلام الـ Farm بالكامل والاعتماد على orgId
     const query = { farm_id: farmId, organization_id: orgId };
     if (filters.merchant_type) query.merchant_type = filters.merchant_type;
     if (filters.status) query.status = filters.status;
 
-    return await Merchant.find(query).sort({ name: 1 }).lean();
+    return await Merchant.find(query).sort({ company_name: 1 }).lean();
   }
 
-  /**
-   * تحديث بيانات التاجر
-   */
   async updateMerchant(merchantId, orgId, updates) {
-    //  الترقية المعمارية: التوثيق والجلب في خطوة واحدة (O(1)) بدلاً من خطوتين
     const merchant = await Merchant.findOne({ _id: merchantId, organization_id: orgId });
-    if (!merchant) throw new AppError('التاجر أو المورد غير موجود أو لا تملك صلاحية تعديله', 404);
+    if (!merchant) throw new AppError('الشركة غير موجودة أو لا تملك صلاحية تعديلها', 404);
 
-    if (updates.name) merchant.name = updates.name.trim();
-    if (updates.phone !== undefined) merchant.phone = updates.phone.trim();
+    if (updates.company_name) merchant.company_name = updates.company_name.trim();
+    if (updates.company_phone !== undefined) merchant.company_phone = updates.company_phone.trim();
     if (updates.address !== undefined) merchant.address = updates.address.trim();
     if (updates.status) merchant.status = updates.status;
 
@@ -63,20 +51,38 @@ class MerchantService {
       await merchant.save();
       return merchant;
     } catch (error) {
-      if (error.code === 11000) throw new AppError('يوجد تاجر آخر مسجل بنفس الاسم والنشاط', 400);
+      if (error.code === 11000) throw new AppError('يوجد شركة أخرى مسجلة بنفس الاسم والنشاط', 400);
       throw error;
     }
   }
 
-  /**
-   * استخراج كشف حساب التاجر (Ledger Statement)
-   */
-  async getMerchantStatement(merchantId, orgId) {
-    //  الترقية المعمارية: سد ثغرة IDOR بحقن orgId مباشرة وتوفير استعلام زائد
-    const merchant = await Merchant.findOne({ _id: merchantId, organization_id: orgId }).lean();
-    if (!merchant) throw new AppError('التاجر غير موجود أو لا تملك صلاحية الوصول لكشف حسابه', 404);
+  //  دوال جديدة لإدارة المناديب المنفصلين
+  async addRepresentative(merchantId, orgId, repData) {
+    const merchant = await Merchant.findOne({ _id: merchantId, organization_id: orgId });
+    if (!merchant) throw new AppError('الشركة غير موجودة', 404);
+    
+    // إذا كان هذا أول مندوب يتم إضافته، نجعله المندوب الأساسي
+    if (merchant.representatives.length === 0) repData.is_primary = true;
 
-    //  الترقية المعمارية: حقن orgId في المعاملات المالية لضمان التوافق المطلق
+    merchant.representatives.push(repData);
+    await merchant.save();
+    return merchant;
+  }
+
+  async removeRepresentative(merchantId, repId, orgId) {
+    const merchant = await Merchant.findOne({ _id: merchantId, organization_id: orgId });
+    if (!merchant) throw new AppError('الشركة غير موجودة', 404);
+
+    // سحب (Pull) المندوب من المصفوفة بناءً على الـ ID الخاص به
+    merchant.representatives.id(repId).deleteOne();
+    await merchant.save();
+    return merchant;
+  }
+
+  async getMerchantStatement(merchantId, orgId) {
+    const merchant = await Merchant.findOne({ _id: merchantId, organization_id: orgId }).lean();
+    if (!merchant) throw new AppError('الشركة غير موجودة أو لا تملك صلاحية الوصول لكشف حسابها', 404);
+
     const [invoices, transactions] = await Promise.all([
       Invoice.find({ merchant_id: merchantId, organization_id: orgId })
         .select('invoice_type total_amount paid_amount remaining_amount invoice_date payment_status')
@@ -89,7 +95,6 @@ class MerchantService {
         .lean()
     ]);
 
-    // حساب الرصيد الحالي
     let currentBalance = merchant.opening_balance;
     invoices.forEach(inv => {
       if (inv.invoice_type === 'PURCHASE') currentBalance -= inv.remaining_amount;
@@ -98,7 +103,8 @@ class MerchantService {
 
     return {
       merchant_info: {
-        name: merchant.name,
+        company_name: merchant.company_name,
+        representatives: merchant.representatives,
         type: merchant.merchant_type,
         status: merchant.status,
         opening_balance: merchant.opening_balance,
@@ -109,21 +115,17 @@ class MerchantService {
     };
   }
 
-  /**
-   * الحذف النهائي للتاجر مع الفحص المتوازي للقيود المرجعية
-   */
   async deleteMerchant(merchantId, orgId) {
     const merchant = await Merchant.findOne({ _id: merchantId, organization_id: orgId });
-    if (!merchant) throw new AppError('التاجر غير موجود أو لا تملك صلاحية حذفه', 404);
+    if (!merchant) throw new AppError('الشركة غير موجودة أو لا تملك صلاحية حذفها', 404);
 
-    //  الترقية المعمارية: حقن orgId للتوثيق الصارم أثناء فحص القيود المرجعية
     const [hasInvoices, hasTransactions] = await Promise.all([
       Invoice.exists({ merchant_id: merchantId, organization_id: orgId }),
       Transaction.exists({ merchant_id: merchantId, organization_id: orgId })
     ]);
 
-    if (hasInvoices) throw new AppError('إجراء مرفوض: لا يمكن حذف التاجر لوجود فواتير مسجلة باسمه. قم بتغيير حالته إلى (INACTIVE) بدلاً من الحذف.', 400);
-    if (hasTransactions) throw new AppError('إجراء مرفوض: لا يمكن حذف التاجر لوجود حركات مالية مسجلة باسمه في الخزينة.', 400);
+    if (hasInvoices) throw new AppError('إجراء مرفوض: لا يمكن حذف الشركة لوجود فواتير مسجلة باسمها.', 400);
+    if (hasTransactions) throw new AppError('إجراء مرفوض: لا يمكن حذف الشركة لوجود حركات مالية مسجلة باسمها في الخزينة.', 400);
 
     await Merchant.findByIdAndDelete(merchantId);
     return true;

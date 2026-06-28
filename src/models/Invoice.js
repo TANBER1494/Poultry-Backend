@@ -27,6 +27,11 @@ const invoiceSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    representative_name: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     cycle_id: { 
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Cycle',

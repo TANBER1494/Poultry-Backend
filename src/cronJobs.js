@@ -1,7 +1,9 @@
 const cron = require('node-cron');
 const Farm = require('./models/Farm');
 const Notification = require('./models/Notification');
-const socket = require('./models/socket'); 
+const socket = require('./models/socket');
+const Worker = require('./models/Worker');       // 🛡️ تم الإضافة
+const WorkerLog = require('./models/WorkerLog'); // 🛡️ تم الإضافة
 
 const startCronJobs = () => {
   
@@ -39,7 +41,6 @@ const startCronJobs = () => {
     console.log('[CRON] Checking for farms nearing expiration...');
     try {
       const now = new Date();
-      
       const fiveDaysLater = new Date();
       fiveDaysLater.setDate(now.getDate() + 5);
       
@@ -56,7 +57,6 @@ const startCronJobs = () => {
 
       if (farmsToWarn.length === 0) return;
 
-      // الحل الهندسي لمشكلة N+1 (Bulk Insert)
       const notificationsToInsert = farmsToWarn.map(farm => ({
         organization_id: farm.organization_id,
         farm_id: farm._id,
@@ -67,10 +67,8 @@ const startCronJobs = () => {
         link: '/owner/billing'
       }));
 
-      // إدخال الإشعارات دفعة واحدة في قاعدة البيانات
       const createdNotifications = await Notification.insertMany(notificationsToInsert);
 
-      // بث الإشعارات الحية بشكل آمن ومتوازي
       const io = socket.getIO();
       if (io) {
         createdNotifications.forEach(notification => {
@@ -81,6 +79,51 @@ const startCronJobs = () => {
       console.log(`[CRON] Sent ${farmsToWarn.length} expiration warnings.`);
     } catch (error) {
       console.error('[CRON] Warning Cron Error:', error.message);
+    }
+  });
+
+  // ==========================================
+  //  الوظيفة الثالثة: التقييم اليومي التلقائي للعمال (أتمتة الحضور)
+  // (تعمل يومياً الساعة 23:55 قبل منتصف الليل بـ 5 دقائق)
+  // ==========================================
+  cron.schedule('55 23 * * *', async () => {
+    console.log('[CRON] Starting daily worker attendance automation...');
+    try {
+      const today = new Date();
+      // توحيد التاريخ للـ UTC ليتطابق مع طريقة حفظ الفرونت إند
+      today.setUTCHours(0, 0, 0, 0);
+
+      // 1. جلب كل العمال المقيمين والنشطين حالياً
+      const activeWorkers = await Worker.find({ status: 'ACTIVE' }).lean();
+      if (activeWorkers.length === 0) return;
+
+      // 2. تجهيز العمليات المجمعة (Bulk Operations) لتقليل الضغط على السيرفر
+      const bulkOps = activeWorkers.map(worker => ({
+        updateOne: {
+          // البحث عن يومية لهذا العامل في هذا التاريخ
+          filter: { worker_id: worker._id, log_date: today },
+          update: {
+            // $setOnInsert: لن يتم تنفيذ هذا الأمر إلا إذا لم يقم المشرف بتسجيل استثناء يدوياً خلال اليوم
+            $setOnInsert: {
+              local_id: `WLOG_AUTO_${worker._id}_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+              organization_id: worker.organization_id,
+              farm_id: worker.farm_id,
+              worker_id: worker._id,
+              log_date: today,
+              wage_multiplier: 1.0, // استحقاق يوم كامل افتراضياً
+              earned_amount: worker.base_daily_wage,
+              notes: 'إثبات استحقاق آلي (نظام المزارع)',
+            }
+          },
+          upsert: true // إذا لم يجد يومية، قم بإنشائها
+        }
+      }));
+
+      // 3. تنفيذ الإدراج الذكي
+      const result = await WorkerLog.bulkWrite(bulkOps, { ordered: false });
+      console.log(`[CRON] Auto-registered attendance for ${result.upsertedCount} workers.`);
+    } catch (error) {
+      console.error('[CRON] Auto-attendance Error:', error.message);
     }
   });
 };

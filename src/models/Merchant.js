@@ -1,5 +1,24 @@
 const mongoose = require('mongoose');
 
+//  الترقية المعمارية: Schema فرعية للمناديب (Embedded Document)
+const representativeSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: [true, 'اسم المندوب مطلوب'],
+    trim: true,
+  },
+  phone: {
+    type: String,
+    trim: true,
+    default: '',
+    match: [/^(01[0125][0-9]{8})?$/, 'رقم هاتف المندوب غير صالح']
+  },
+  is_primary: {
+    type: Boolean,
+    default: false
+  }
+});
+
 const merchantSchema = new mongoose.Schema(
   {
     farm_id: {
@@ -14,9 +33,9 @@ const merchantSchema = new mongoose.Schema(
       required: [true, 'يجب ربط المزرعة بشركة (Organization)'],
       index: true,
     },
-    name: {
+    company_name: {
       type: String,
-      required: [true, 'اسم التاجر أو الشركة مطلوب'],
+      required: [true, 'اسم الشركة أو الكيان التجاري مطلوب'],
       trim: true,
     },
     merchant_type: {
@@ -32,12 +51,11 @@ const merchantSchema = new mongoose.Schema(
       ],
       required: true,
     },
-    phone: {
+    company_phone: {
       type: String,
       trim: true,
       default: '',
-      //  التطوير المعماري: تحقق اختياري ولكنه صارم في حال إدخال رقم هاتف
-      match: [/^(01[0125][0-9]{8})?$/, 'رقم الهاتف غير صالح، يجب أن يكون رقماً مصرياً صحيحاً']
+      match: [/^(01[0125][0-9]{8}|0[2-9][0-9]{7})?$/, 'رقم هاتف الشركة غير صالح']
     },
     address: {
       type: String,
@@ -53,12 +71,14 @@ const merchantSchema = new mongoose.Schema(
       enum: ['ACTIVE', 'INACTIVE'], 
       default: 'ACTIVE',
     },
+    // مصفوفة المناديب المدمجة
+    representatives: [representativeSchema]
   },
   { timestamps: true }
 );
 
 merchantSchema.index(
-  { farm_id: 1, name: 1, merchant_type: 1 },
+  { farm_id: 1, company_name: 1, merchant_type: 1 },
   { unique: true }
 );
 

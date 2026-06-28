@@ -3,18 +3,20 @@ const router = express.Router();
 
 const {
   addSupervisor,
-  getSupervisors
+  getSupervisors,
+  updateSupervisor,
+  deleteSupervisor // تم الإضافة
 } = require('../controllers/supervisorController');
 
 const { protect } = require('../middlewares/authMiddleware');
 const { authorize } = require('../middlewares/roleMiddleware');
 const { checkSubscription } = require('../middlewares/subscriptionMiddleware');
 
-// حماية المسارات
 router.use(protect);
 
-// مسارات إدارة المشرفين (حكر على المالك فقط)
 router.post('/', authorize('OWNER'), checkSubscription, addSupervisor);
 router.get('/farm/:farm_id', authorize('OWNER'), getSupervisors);
+router.put('/:id', authorize('OWNER'), checkSubscription, updateSupervisor);
+router.delete('/:id', authorize('OWNER'), checkSubscription, deleteSupervisor);
 
 module.exports = router;

@@ -8,8 +8,8 @@ class SettingsService {
    * جلب تفضيلات المستخدم
    */
   async getSettings(userId) {
-    const user = await User.findOne({ _id: userId, deleted_at: null })
-      .select('phone is_dark_mode notifications')
+   const user = await User.findOne({ _id: userId, deleted_at: null })
+      .select('name phone is_dark_mode notifications') 
       .lean();
     
     if (!user) throw new AppError('المستخدم غير موجود أو تم إيقاف حسابه', 404);
@@ -19,7 +19,7 @@ class SettingsService {
   /**
    * تحديث رقم الهاتف مع التحقق من صحته وعدم تكراره
    */
-  async updatePhone(userId, newPhone) {
+  async updatePhone(userId, newPhone, newName) {
     if (!newPhone || !/^01[0125][0-9]{8}$/.test(newPhone)) {
       throw new AppError('رقم الهاتف الجديد غير صحيح أو غير مطابق للمواصفات', 400);
     }
@@ -27,16 +27,19 @@ class SettingsService {
     const user = await User.findOne({ _id: userId, deleted_at: null });
     if (!user) throw new AppError('المستخدم غير موجود', 404);
 
-    if (user.phone === newPhone) {
-      return { isSame: true, phone: user.phone };
+    let isSamePhone = user.phone === newPhone;
+    let isNameChanged = newName && user.name !== newName.trim();
+
+    if (isSamePhone && !isNameChanged) {
+      return { isSame: true, phone: user.phone, name: user.name };
     }
 
     user.phone = newPhone;
+    if (newName) user.name = newName.trim(); // سيتحدث الاسم للمالك فقط
 
     try {
-      //  الترقية المعمارية: الاعتماد على محرك الداتا بيز لالتقاط التكرار النشط فقط وتوفير استعلام زائد
       await user.save();
-      return { isSame: false, phone: user.phone };
+      return { isSame: false, phone: user.phone, name: user.name };
     } catch (error) {
       if (error.code === 11000) {
         throw new AppError('هذا الرقم مسجل بحساب آخر نشط في النظام', 400);

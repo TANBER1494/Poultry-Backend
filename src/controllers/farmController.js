@@ -8,10 +8,10 @@ const AppError = require('../utils/AppError');
  * @access  Private (Owner)
  */
 const addFarm = asyncHandler(async (req, res, next) => {
-  const { name, location, farm_type, max_capacity } = req.body;
+  const { name, location } = req.body;
 
-  if (!name || !location || !farm_type || !max_capacity) {
-    return next(new AppError('البيانات الأساسية للمزرعة (الاسم، الموقع، النوع، السعة) مطلوبة', 400));
+  if (!name || !location) {
+    return next(new AppError('البيانات الأساسية للمزرعة (الاسم، الموقع) مطلوبة', 400));
   }
 
   const newFarm = await farmService.createFarm(req.body, req.user.organization_id);
@@ -28,7 +28,12 @@ const addFarm = asyncHandler(async (req, res, next) => {
  * @access  Private (Owner)
  */
 const getFarms = asyncHandler(async (req, res, next) => {
-  const farms = await farmService.getOrganizationFarms(req.user.organization_id);
+  let farms = await farmService.getOrganizationFarms(req.user.organization_id);
+
+  if (req.user.role === 'SUPERVISOR') {
+    farms = farms.filter(f => f._id.toString() === req.user.farm_id.toString());
+  }
+
   res.status(200).json({ count: farms.length, farms });
 });
 

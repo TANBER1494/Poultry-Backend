@@ -18,17 +18,6 @@ const farmSchema = new mongoose.Schema(
       required: [true, 'موقع المزرعة مطلوب'],
       trim: true,
     },
-    farm_type: { 
-      type: String,
-      enum: ['BROILER', 'LAYER', 'BREEDER'], 
-      default: 'BROILER',
-      required: true,
-    },
-    max_capacity: { 
-      type: Number,
-      required: [true, 'يجب تحديد السعة القصوى للمزرعة (عدد الطيور)'],
-      min: [0, 'السعة لا يمكن أن تكون سالبة'],
-    },
     subscription_status: {
       type: String,
       enum: ['TRIAL', 'ACTIVE', 'OVERDUE', 'LOCKED'],
