@@ -8,7 +8,8 @@ const {
   markAllAsRead, 
   deleteNotification, 
   deleteAllReadNotifications,
-  testSendNotification
+  testSendNotification,
+  registerFcmToken
 } = require('../controllers/notificationController');
 
 // Security Middleware
@@ -18,6 +19,7 @@ router.use(protect);
 router.get('/', getNotifications);
 
 // Static Notification Routes
+router.post('/register-token', registerFcmToken);
 router.put('/read-all', markAllAsRead);
 router.delete('/read', deleteAllReadNotifications);
 router.post('/send', testSendNotification);

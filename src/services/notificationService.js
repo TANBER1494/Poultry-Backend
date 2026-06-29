@@ -18,13 +18,16 @@ class NotificationService {
     if (!admin.apps.length) {
       try {
         let serviceAccount;
-        
+
         // 1. فك تشفير المفتاح من متغير البيئة المشفر بـ Base64
         if (process.env.FIREBASE_BASE64) {
-          const decodedKey = Buffer.from(process.env.FIREBASE_BASE64, 'base64').toString('utf8');
+          const decodedKey = Buffer.from(
+            process.env.FIREBASE_BASE64,
+            'base64'
+          ).toString('utf8');
           serviceAccount = JSON.parse(decodedKey);
           console.log(' Firebase Admin: Using Base64 Environment Variable');
-        } 
+        }
         // 2. المحاولة البديلة من الملف المحلي (لبيئة التطوير Localhost)
         else {
           serviceAccount = require('../config/firebase-key.json');
@@ -32,7 +35,7 @@ class NotificationService {
         }
 
         admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount)
+          credential: admin.credential.cert(serviceAccount),
         });
         console.log('🔥 Firebase Admin Initialized Successfully');
       } catch (error) {
@@ -70,13 +73,32 @@ class NotificationService {
    *  الترقية المعمارية: دعم الـ Transactions وإرسال الـ Push بشكل خلفي (Background)
    */
   async sendAppNotification(data, session = null) {
-    const { title, message, type, target_role, target_user_id, organization_id, link } = data;
+    const {
+      title,
+      message,
+      type,
+      target_role,
+      target_user_id,
+      organization_id,
+      link,
+    } = data;
 
     try {
       const createOptions = session ? { session } : {};
-      const [newNotification] = await Notification.create([{
-        title, message, type, target_role, target_user_id, organization_id, link
-      }], createOptions);
+      const [newNotification] = await Notification.create(
+        [
+          {
+            title,
+            message,
+            type,
+            target_role,
+            target_user_id,
+            organization_id,
+            link,
+          },
+        ],
+        createOptions
+      );
 
       // 1. الإرسال اللحظي عبر Socket (لا يكسر النظام إذا فشل)
       try {
@@ -95,7 +117,13 @@ class NotificationService {
 
       // 2. إرسال إشعار الموبايل FCM في الخلفية (Background Promise)
       //  لا نقوم بعمل await هنا حتى لا نعطل سرعة الرد الأساسية (Non-blocking)
-      this._sendPushNotifications(target_role, organization_id, target_user_id, title, message).catch(err => {
+      this._sendPushNotifications(
+        target_role,
+        organization_id,
+        target_user_id,
+        title,
+        message
+      ).catch((err) => {
         console.error('[FCM Background Error]:', err.message);
       });
 
@@ -110,16 +138,24 @@ class NotificationService {
    *  الترقية المعمارية: إرسال FCM مع تقسيم الطلبات (Chunking) لمنع الانهيار
    * @private
    */
-  async _sendPushNotifications(target_role, organization_id, target_user_id, title, message) {
+  async _sendPushNotifications(
+    target_role,
+    organization_id,
+    target_user_id,
+    title,
+    message
+  ) {
     if (!admin.apps.length) return; // الخروج بصمت إذا لم يعمل فايربيز
 
     let query = { status: 'ACTIVE', fcm_token: { $ne: null } };
     if (target_role === 'SUPER_ADMIN') query.role = 'SUPER_ADMIN';
-    else if (target_role === 'OWNER') { query.role = 'OWNER'; query.organization_id = organization_id; }
-    else if (target_user_id) query._id = target_user_id;
+    else if (target_role === 'OWNER') {
+      query.role = 'OWNER';
+      query.organization_id = organization_id;
+    } else if (target_user_id) query._id = target_user_id;
 
     const targetUsers = await User.find(query).select('fcm_token').lean();
-    const tokens = targetUsers.map(user => user.fcm_token).filter(Boolean);
+    const tokens = targetUsers.map((user) => user.fcm_token).filter(Boolean);
 
     if (tokens.length === 0) return;
 
@@ -129,12 +165,14 @@ class NotificationService {
       const chunk = tokens.slice(i, i + chunkSize);
       const payload = {
         notification: { title, body: message },
-        tokens: chunk, 
+        tokens: chunk,
       };
-      
+
       try {
         const response = await admin.messaging().sendEachForMulticast(payload);
-        console.log(`FCM Sent: ${response.successCount} Success, ${response.failureCount} Failed`);
+        console.log(
+          `FCM Sent: ${response.successCount} Success, ${response.failureCount} Failed`
+        );
       } catch (err) {
         console.error('FCM Multicast Error:', err.message);
       }
@@ -146,7 +184,10 @@ class NotificationService {
    */
   async getNotifications(user) {
     const query = this._buildBaseQuery(user);
-    return await Notification.find(query).sort({ createdAt: -1 }).limit(50).lean();
+    return await Notification.find(query)
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
   }
 
   /**
@@ -154,8 +195,14 @@ class NotificationService {
    */
   async markAsRead(notificationId, user) {
     const query = { ...this._buildBaseQuery(user), _id: notificationId };
-    const notification = await Notification.findOneAndUpdate(query, { is_read: true });
-    if (!notification) throw new AppError('الإشعار غير موجود أو لا تملك صلاحية الوصول إليه', 404);
+    const notification = await Notification.findOneAndUpdate(query, {
+      is_read: true,
+    });
+    if (!notification)
+      throw new AppError(
+        'الإشعار غير موجود أو لا تملك صلاحية الوصول إليه',
+        404
+      );
     return true;
   }
 
@@ -183,7 +230,27 @@ class NotificationService {
   async deleteNotification(notificationId, user) {
     const query = { ...this._buildBaseQuery(user), _id: notificationId };
     const deleted = await Notification.findOneAndDelete(query);
-    if (!deleted) throw new AppError('الإشعار غير موجود أو لا تملك صلاحية حذفه', 404);
+    if (!deleted)
+      throw new AppError('الإشعار غير موجود أو لا تملك صلاحية حذفه', 404);
+    return true;
+  }
+
+  async registerFcmToken(userId, fcmToken) {
+    if (!fcmToken) {
+      throw new AppError('FCM token is required', 400);
+    }
+
+    await User.findByIdAndUpdate(
+      userId,
+      {
+        fcm_token: fcmToken,
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
     return true;
   }
 }

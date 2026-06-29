@@ -64,11 +64,32 @@ const testSendNotification = asyncHandler(async (req, res, next) => {
   });
 });
 
+
+/**
+ * @desc    Register or update user's FCM token
+ * @route   POST /api/notifications/register-token
+ * @access  Private
+ */
+const registerFcmToken = asyncHandler(async (req, res, next) => {
+  const { fcm_token } = req.body;
+
+  await notificationService.registerFcmToken(
+    req.user._id,
+    fcm_token
+  );
+
+  res.status(200).json({
+    message: 'تم تسجيل FCM Token بنجاح'
+  });
+});
+
+
 module.exports = { 
   getNotifications, 
   markAsRead, 
   markAllAsRead, 
   deleteNotification, 
   deleteAllReadNotifications,
-  testSendNotification
+  testSendNotification,
+  registerFcmToken
 };
