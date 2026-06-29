@@ -11,20 +11,24 @@ class NotificationService {
 
   /**
    * تهيئة آمنة لـ Firebase Admin (تمنع التهيئة المزدوجة)
+   *  الترقية المعمارية: استخدام Base64 لفك تشفير المفتاح في السيرفرات السحابية
    * @private
    */
   _initializeFirebase() {
     if (!admin.apps.length) {
       try {
         let serviceAccount;
-        if (process.env.FIREBASE_PRIVATE_KEY) {
-          serviceAccount = {
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-          };
-        } else {
+        
+        // 1. فك تشفير المفتاح من متغير البيئة المشفر بـ Base64
+        if (process.env.FIREBASE_BASE64) {
+          const decodedKey = Buffer.from(process.env.FIREBASE_BASE64, 'base64').toString('utf8');
+          serviceAccount = JSON.parse(decodedKey);
+          console.log(' Firebase Admin: Using Base64 Environment Variable');
+        } 
+        // 2. المحاولة البديلة من الملف المحلي (لبيئة التطوير Localhost)
+        else {
           serviceAccount = require('../config/firebase-key.json');
+          console.log(' Firebase Admin: Using Local JSON File');
         }
 
         admin.initializeApp({
