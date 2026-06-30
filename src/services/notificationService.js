@@ -150,9 +150,9 @@ class NotificationService {
     target_user_id,
     title,
     message,
-    link
+    link 
   ) {
-    if (!admin.apps.length) return; // الخروج بصمت إذا لم يعمل فايربيز
+    if (!admin.apps.length) return; 
 
     let query = { status: 'ACTIVE', fcm_token: { $ne: null } };
     if (target_role === 'SUPER_ADMIN') query.role = 'SUPER_ADMIN';
@@ -166,7 +166,6 @@ class NotificationService {
 
     if (tokens.length === 0) return;
 
-   //  حل ثغرة فايربيز: إرسال بحد أقصى 500 توكن في الدفعة الواحدة
     const chunkSize = 500;
     for (let i = 0; i < tokens.length; i += chunkSize) {
       const chunk = tokens.slice(i, i + chunkSize);
@@ -174,23 +173,19 @@ class NotificationService {
       const payload = {
         notification: { 
           title: title, 
-          body: message,
-          //  ربط لوجو التطبيق الصريح لكي لا يرفضه الأندرويد
-          icon: '/pwa-192x192.png' 
+          body: message 
+          //  تم إزالة الـ icon النسبي هنا لأنه يدمر الإشعار في الموبايل
         },
-        //  اختراق وضع توفير البطارية (Doze Mode) في الأندرويد
         android: {
-          priority: 'high'
+          priority: 'high' //  إجبار الأندرويد على الاستيقاظ الفوري
         },
-        //  اختراق وضع السكون في متصفحات الويب
         webpush: {
           headers: {
             Urgency: 'high'
           }
         },
-        //  تمرير الرابط للفرونت إند
         data: {
-          click_action: link || '/'
+          click_action: link || '/' //  تمرير الرابط للتوجيه
         },
         tokens: chunk,
       };
