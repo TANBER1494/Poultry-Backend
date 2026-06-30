@@ -48,7 +48,7 @@ class NotificationService {
    * بناء الاستعلام الأساسي الموحد بناءً على صلاحيات المستخدم
    * @private
    */
-_buildBaseQuery(user) {
+  _buildBaseQuery(user) {
     const { role, _id, organization_id } = user;
     let query = {};
 
@@ -61,7 +61,8 @@ _buildBaseQuery(user) {
       query.organization_id = organization_id;
       query.target_role = 'SUPERVISOR';
       query.target_user_id = _id;
-    } else if (role === 'WORKER') { // إضافة صلاحية العامل
+    } else if (role === 'WORKER') {
+      // إضافة صلاحية العامل
       query.organization_id = organization_id;
       query.target_role = 'WORKER';
       query.target_user_id = _id; // العامل يرى إشعاراته المخصصة له فقط
@@ -143,13 +144,13 @@ _buildBaseQuery(user) {
    *  الترقية المعمارية: إرسال FCM مع تقسيم الطلبات (Chunking) لمنع الانهيار
    * @private
    */
-async _sendPushNotifications(
+  async _sendPushNotifications(
     target_role,
     organization_id,
     target_user_id,
     title,
     message,
-    link 
+    link
   ) {
     if (!admin.apps.length) return; // الخروج بصمت إذا لم يعمل فايربيز
 
@@ -169,12 +170,17 @@ async _sendPushNotifications(
     const chunkSize = 500;
     for (let i = 0; i < tokens.length; i += chunkSize) {
       const chunk = tokens.slice(i, i + chunkSize);
-      
+
       const payload = {
-        notification: { title, body: message },
-        //  التعديل الثاني الجوهري: إضافة كائن data لتوجيه الموبايل
-        data: {
-          click_action: link || '/', // التوجيه للرابط، أو للرئيسية كاحتياطي
+        notification: {
+          title: title,
+          body: message,
+        },
+        //  السحر المعماري الجديد: توجيه الويب المدمج من فايربيز
+        webpush: {
+          fcm_options: {
+            link: link || '/', // الرابط الذي أصلحناه في الكنترولر
+          },
         },
         tokens: chunk,
       };
