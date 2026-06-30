@@ -171,21 +171,14 @@ class NotificationService {
       const chunk = tokens.slice(i, i + chunkSize);
       
       const payload = {
+        // 1. هيكل الإشعار النقي (كما في دكاني تماماً)
         notification: { 
           title: title, 
           body: message 
-          //  تم إزالة الـ icon النسبي هنا لأنه يدمر الإشعار في الموبايل
         },
-        android: {
-          priority: 'high' //  إجبار الأندرويد على الاستيقاظ الفوري
-        },
-        webpush: {
-          headers: {
-            Urgency: 'high'
-          }
-        },
+        // 2. تمرير الرابط في الـ data بطريقة آمنة
         data: {
-          click_action: link || '/' //  تمرير الرابط للتوجيه
+          url: link || '/' // استخدمنا اسم url بدلاً من click_action لتجنب تعارض فايربيز
         },
         tokens: chunk,
       };
@@ -197,7 +190,6 @@ class NotificationService {
         console.error('FCM Multicast Error:', err.message);
       }
     }
-  }
 
   /**
    * جلب الإشعارات
