@@ -181,16 +181,15 @@ class NotificationService {
       const chunk = tokens.slice(i, i + chunkSize);
       
       const payload = {
-        //  2. استراتيجية Data-Only: لا يوجد كائن notification هنا!
-        data: {
-          title: String(title || 'إشعار جديد'),
-          body: String(message || ''),
-          icon: String(absoluteIconUrl),
-          click_action: String(link || '/')
+        // 1. هيكل الإشعار النقي (كما في دكاني تماماً)
+        notification: { 
+          title: title, 
+          body: message 
         },
-        //  3. إيقاظ الهاتف من وضع السكون (Doze Mode)
-        android: { priority: 'high' },
-        webpush: { headers: { Urgency: 'high' } },
+        // 2. تمرير الرابط في الـ data بطريقة آمنة
+        data: {
+          url: link || '/' // استخدمنا اسم url بدلاً من click_action لتجنب تعارض فايربيز
+        },
         tokens: chunk,
       };
 
