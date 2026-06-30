@@ -166,7 +166,7 @@ class NotificationService {
 
     if (tokens.length === 0) return;
 
-    const chunkSize = 500;
+const chunkSize = 500;
     for (let i = 0; i < tokens.length; i += chunkSize) {
       const chunk = tokens.slice(i, i + chunkSize);
       
@@ -190,6 +190,7 @@ class NotificationService {
         console.error('FCM Multicast Error:', err.message);
       }
     }
+  }
 
   /**
    * جلب الإشعارات
