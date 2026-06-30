@@ -151,23 +151,18 @@ class NotificationService {
     title,
     message,
     link,
-    type // 🚀 استقبال نوع الإشعار
+    type
   ) {
     if (!admin.apps.length) return; 
 
-    // ==========================================
-    // 🚀 هندسة الصور: تحديد الرابط الكامل (Absolute URL)
-    // ==========================================
+    //  1. تجهيز روابط الصور
     const baseUrl = process.env.CLIENT_URL || 'https://poultry-frontend-eta.vercel.app';
-    
     let iconFile = 'logo.png';
     if (type === 'HIGH_MORTALITY' || type === 'LARGE_EXPENSE') iconFile = 'alert.png';
     else if (type === 'EGG_SALE' || type === 'INVOICE') iconFile = 'invoice.png';
     else if (type === 'DAILY_LOG') iconFile = 'badge.png';
     
     const absoluteIconUrl = `${baseUrl}/${iconFile}`;
-    const badgeUrl = `${baseUrl}/badge.png`; // الأيقونة البيضاء الصغيرة في شريط الإشعارات العلوي
-    // ==========================================
 
     let query = { status: 'ACTIVE', fcm_token: { $ne: null } };
     if (target_role === 'SUPER_ADMIN') query.role = 'SUPER_ADMIN';
@@ -186,29 +181,16 @@ class NotificationService {
       const chunk = tokens.slice(i, i + chunkSize);
       
       const payload = {
-        notification: { 
-          title: title, 
-          body: message 
-        },
-        //  السحر هنا: استخدام إعدادات الـ WebPush المخصصة للـ PWA
-        webpush: {
-          headers: {
-            Urgency: 'high' // إيقاظ الموبايل
-          },
-          notification: {
-            icon: absoluteIconUrl, // اللوجو المخصص لكل إشعار
-            badge: badgeUrl, // أيقونة الشريط العلوي
-            vibrate: [200, 100, 200] // تفعيل الاهتزاز
-          },
-          // التوجيه التلقائي المدعوم من فايربيز
-          fcmOptions: {
-            link: link || '/'
-          }
-        },
-        // كبيانات احتياطية للـ Service Worker الخاص بنا
+        //  2. استراتيجية Data-Only: لا يوجد كائن notification هنا!
         data: {
-          click_action: link || '/'
+          title: String(title || 'إشعار جديد'),
+          body: String(message || ''),
+          icon: String(absoluteIconUrl),
+          click_action: String(link || '/')
         },
+        //  3. إيقاظ الهاتف من وضع السكون (Doze Mode)
+        android: { priority: 'high' },
+        webpush: { headers: { Urgency: 'high' } },
         tokens: chunk,
       };
 
