@@ -138,25 +138,25 @@ const server = http.createServer(app);
 const io = socket.init(server);
 
 io.on('connection', (socket) => {
-  const user = socket.user; 
-  console.log(`🔌 Client connected securely: ${socket.id} | Role: ${user?.role}`);
+  const user = socket.user; // تم حقن هذا الكائن من ميدلوير الـ socket.js
+  console.log(`🔌 Client connected securely: ${socket.id} | Role: ${user?.role || 'UNKNOWN'}`);
 
-  //  تغليف العملية بـ try/catch وإضافة شروط أمان إضافية
-  try {
-    if (user.role === 'SUPER_ADMIN') {
-      socket.join('SUPER_ADMIN_ROOM');
-      console.log(` Super Admin joined global room`);
-    } else if (user.role === 'OWNER' && user.organization_id) {
-      socket.join(user.organization_id.toString());
-      console.log(` Owner joined organization room: ${user.organization_id}`);
-    } else if (user.role === 'SUPERVISOR' && (user._id || user.id)) {
-      const supId = (user._id || user.id).toString();
-      socket.join(supId); 
-      console.log(` Supervisor joined personal room: ${supId}`);
-    }
-  } catch (err) {
-    console.error('⚠️ خطأ في الانضمام لغرفة السوكيت:', err.message);
+  // 1. التوجيه الآمن التلقائي (إن وُجدت البيانات في التوكن)
+  if (user?.role === 'SUPER_ADMIN') {
+    socket.join('SUPER_ADMIN_ROOM');
+  } else if (user?.role === 'OWNER' && user?.organization_id) {
+    socket.join(user.organization_id.toString());
+  } else if (user?.role === 'SUPERVISOR' && user?._id) {
+    socket.join(user._id.toString()); 
   }
+
+  // 2.  [الحل السحري] إعادة تفعيل مستمع الانضمام اليدوي كاحتياطي موثوق (كما في دكاني)
+  socket.on('joinRoom', (room) => {
+    if (room) {
+      socket.join(room.toString());
+      console.log(`🏠 Secure Socket ${socket.id} explicitly joined room: ${room}`);
+    }
+  });
 
   socket.on('disconnect', () => {
     console.log(`❌ Client disconnected: ${socket.id}`);
