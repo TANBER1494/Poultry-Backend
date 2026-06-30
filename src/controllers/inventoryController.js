@@ -2,7 +2,7 @@ const InventoryItem = require('../models/InventoryItem');
 const InventoryMovement = require('../models/InventoryMovement');
 const Farm = require('../models/Farm');
 const inventoryService = require('../services/inventoryService');
-const notificationService = require('../services/notificationService'); 
+const notificationService = require('../services/notificationService');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
@@ -16,28 +16,38 @@ const addInventoryItem = asyncHandler(async (req, res, next) => {
   const orgId = req.user.organization_id;
 
   if (!farm_id || !name || !category || !unit) {
-    return next(new AppError('البيانات الأساسية للصنف مطلوبة (المزرعة، الاسم، التصنيف، الوحدة)', 400));
+    return next(
+      new AppError(
+        'البيانات الأساسية للصنف مطلوبة (المزرعة، الاسم، التصنيف، الوحدة)',
+        400
+      )
+    );
   }
 
-  const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
+  const farm = await Farm.findOne({
+    _id: farm_id,
+    organization_id: orgId,
+  }).lean();
   if (!farm) {
-    return next(new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403));
+    return next(
+      new AppError('المزرعة غير موجودة أو لا تملك صلاحية الوصول إليها', 403)
+    );
   }
 
   try {
     //  الترقية المعمارية: تمرير orgId والاعتماد على قوة الفهرس المركب في MongoDB لمنع التكرار
     const newItem = await InventoryItem.create({
-      organization_id: orgId, 
+      organization_id: orgId,
       farm_id,
       name: name.trim(),
       category,
       unit,
-      min_alert_level: Number(min_alert_level) || 0
+      min_alert_level: Number(min_alert_level) || 0,
     });
 
     res.status(201).json({
       message: 'تم إضافة الصنف لبطاقة المخازن بنجاح',
-      item: newItem
+      item: newItem,
     });
   } catch (error) {
     // التقاط خطأ التكرار من المحرك مباشرة (لتوفير Database Round-trip)
@@ -58,7 +68,11 @@ const getInventoryItems = asyncHandler(async (req, res, next) => {
   const orgId = req.user.organization_id;
 
   //  الترقية المعمارية: استعلام مباشر يعتمد على orgId يوفر الحاجة للبحث في جدول Farm
-  const items = await InventoryItem.find({ farm_id, organization_id: orgId, deleted_at: null })
+  const items = await InventoryItem.find({
+    farm_id,
+    organization_id: orgId,
+    deleted_at: null,
+  })
     .sort({ category: 1, name: 1 })
     .lean();
 
@@ -71,16 +85,40 @@ const getInventoryItems = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const recordInventoryMovement = asyncHandler(async (req, res, next) => {
-  const { local_id, farm_id, item_id, movement_type, quantity, unit_cost_at_time, movement_date } = req.body;
+  const {
+    local_id,
+    farm_id,
+    item_id,
+    movement_type,
+    quantity,
+    unit_cost_at_time,
+    movement_date,
+  } = req.body;
 
-  if (!local_id || !farm_id || !item_id || !movement_type || !quantity || !unit_cost_at_time || !movement_date) {
-    return next(new AppError('البيانات الأساسية للحركة المخزنية غير مكتملة', 400));
+  if (
+    !local_id ||
+    !farm_id ||
+    !item_id ||
+    !movement_type ||
+    !quantity ||
+    !unit_cost_at_time ||
+    !movement_date
+  ) {
+    return next(
+      new AppError('البيانات الأساسية للحركة المخزنية غير مكتملة', 400)
+    );
   }
 
-  const result = await inventoryService.recordMovement(req.body, req.user._id, req.user.organization_id);
+  const result = await inventoryService.recordMovement(
+    req.body,
+    req.user._id,
+    req.user.organization_id
+  );
 
   if (result.isDuplicate) {
-    return res.status(200).json({ message: 'الحركة مسجلة مسبقاً', movement: result.movement });
+    return res
+      .status(200)
+      .json({ message: 'الحركة مسجلة مسبقاً', movement: result.movement });
   }
 
   // 2️ إطلاق إشعار للمشرف إذا كان التوريد معلقاً (تم إرساله من المالك وينتظر الاستلام)
@@ -92,7 +130,7 @@ const recordInventoryMovement = asyncHandler(async (req, res, next) => {
         type: 'FEED_DELIVERY',
         target_role: 'SUPERVISOR',
         organization_id: req.user.organization_id,
-        link: '/dashboard/inventory/pending' // صفحة التأكيد في الفرونت إند
+        link: '/supervisor/inventory',
       });
     } catch (err) {
       console.error('فشل إرسال إشعار التوريد:', err.message);
@@ -100,8 +138,11 @@ const recordInventoryMovement = asyncHandler(async (req, res, next) => {
   }
 
   res.status(201).json({
-    message: req.body.status === 'PENDING' ? 'تم تسجيل التوريد وبانتظار تأكيد المشرف' : 'تم تسجيل الحركة وتحديث الأرصدة بنجاح',
-    movement: result.movement
+    message:
+      req.body.status === 'PENDING'
+        ? 'تم تسجيل التوريد وبانتظار تأكيد المشرف'
+        : 'تم تسجيل الحركة وتحديث الأرصدة بنجاح',
+    movement: result.movement,
   });
 });
 
@@ -112,7 +153,11 @@ const recordInventoryMovement = asyncHandler(async (req, res, next) => {
  */
 const confirmInventoryMovement = asyncHandler(async (req, res, next) => {
   // 3️ استدعاء دالة التأكيد من الخدمة (لترصيد الكميات في المخزن الفعلي)
-  const movement = await inventoryService.confirmMovement(req.params.id, req.user._id, req.user.organization_id);
+  const movement = await inventoryService.confirmMovement(
+    req.params.id,
+    req.user._id,
+    req.user.organization_id
+  );
 
   // 4️ إطلاق إشعار للمالك يفيد بأن المشرف استلم البضاعة وتأكد منها
   try {
@@ -122,7 +167,7 @@ const confirmInventoryMovement = asyncHandler(async (req, res, next) => {
       type: 'FEED_CONFIRMED',
       target_role: 'OWNER',
       organization_id: req.user.organization_id,
-      link: '/dashboard/inventory'
+     link: '/owner/inventory'
     });
   } catch (err) {
     console.error('فشل إرسال إشعار التأكيد:', err.message);
@@ -130,7 +175,7 @@ const confirmInventoryMovement = asyncHandler(async (req, res, next) => {
 
   res.status(200).json({
     message: 'تم تأكيد الاستلام وتحديث رصيد المخزن بنجاح',
-    movement
+    movement,
   });
 });
 
@@ -144,12 +189,20 @@ const getItemMovements = asyncHandler(async (req, res, next) => {
   const orgId = req.user.organization_id;
 
   //  الترقية المعمارية: سد ثغرة IDOR في استعلام واحد فقط (O(1)) بدلاً من استعلامين
-  const item = await InventoryItem.findOne({ _id: item_id, organization_id: orgId }).lean();
+  const item = await InventoryItem.findOne({
+    _id: item_id,
+    organization_id: orgId,
+  }).lean();
   if (!item) {
-    return next(new AppError('الصنف غير موجود أو لا تملك صلاحية الوصول إليه', 404));
+    return next(
+      new AppError('الصنف غير موجود أو لا تملك صلاحية الوصول إليه', 404)
+    );
   }
 
-  const movements = await InventoryMovement.find({ item_id, organization_id: orgId })
+  const movements = await InventoryMovement.find({
+    item_id,
+    organization_id: orgId,
+  })
     .populate('performed_by', 'name role')
     .populate('cycle_id', 'name type')
     .sort({ movement_date: -1 })
@@ -164,7 +217,11 @@ const getItemMovements = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const updateInventoryItem = asyncHandler(async (req, res, next) => {
-  const item = await inventoryService.updateInventoryItem(req.params.id, req.user.organization_id, req.body);
+  const item = await inventoryService.updateInventoryItem(
+    req.params.id,
+    req.user.organization_id,
+    req.body
+  );
   res.status(200).json({ message: 'تم تحديث بيانات الصنف بنجاح', item });
 });
 
@@ -174,7 +231,10 @@ const updateInventoryItem = asyncHandler(async (req, res, next) => {
  * @access  Private
  */
 const deleteInventoryItem = asyncHandler(async (req, res, next) => {
-  await inventoryService.deleteInventoryItem(req.params.id, req.user.organization_id);
+  await inventoryService.deleteInventoryItem(
+    req.params.id,
+    req.user.organization_id
+  );
   res.status(200).json({ message: 'تم أرشفة الصنف من المخزن بنجاح' });
 });
 
@@ -190,17 +250,21 @@ const transferToBarn = asyncHandler(async (req, res, next) => {
     return next(new AppError('جميع بيانات صرف العهدة مطلوبة', 400));
   }
 
-  const movement = await inventoryService.transferToBarnCustody(req.body, req.user._id, req.user.organization_id);
+  const movement = await inventoryService.transferToBarnCustody(
+    req.body,
+    req.user._id,
+    req.user.organization_id
+  );
   res.status(201).json({ message: 'تم صرف العهدة للعنبر بنجاح', movement });
 });
 
-module.exports = { 
-  addInventoryItem, 
-  getInventoryItems, 
-  recordInventoryMovement, 
+module.exports = {
+  addInventoryItem,
+  getInventoryItems,
+  recordInventoryMovement,
   confirmInventoryMovement,
   getItemMovements,
   updateInventoryItem,
   deleteInventoryItem,
-  transferToBarn
+  transferToBarn,
 };
