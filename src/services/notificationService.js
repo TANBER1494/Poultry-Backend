@@ -128,7 +128,8 @@ class NotificationService {
         target_user_id,
         title,
         message,
-        link
+        link,
+        type
       ).catch((err) => {
         console.error('[FCM Background Error]:', err.message);
       });
@@ -150,9 +151,29 @@ class NotificationService {
     target_user_id,
     title,
     message,
-    link 
+    link,
+    type // 🚀 استقبال نوع الإشعار
   ) {
     if (!admin.apps.length) return; 
+
+    // ==========================================
+    // 🚀 هندسة الصور: تحديد الرابط الكامل بناءً على نوع الإشعار
+    // ==========================================
+    // نستخدم الرابط الموجود في الـ env، وإذا لم يوجد نستخدم رابط الـ Vercel الخاص بك كاحتياطي
+    const baseUrl = process.env.CLIENT_URL || 'https://poultry-frontend-eta.vercel.app';
+    
+    let iconFile = 'logo.png'; // الصورة الافتراضية (لوجو المزرعة)
+    if (type === 'HIGH_MORTALITY' || type === 'LARGE_EXPENSE') {
+      iconFile = 'alert.png'; // صورة التحذير
+    } else if (type === 'EGG_SALE' || type === 'INVOICE') {
+      iconFile = 'invoice.png'; // صورة المبيعات والفواتير
+    } else if (type === 'DAILY_LOG') {
+      iconFile = 'badge.png'; // صورة اليومية
+    }
+    
+    // دمج الرابط لتجنب الـ Crash في الأندرويد
+    const absoluteImageUrl = `${baseUrl}/${iconFile}`;
+    // ==========================================
 
     let query = { status: 'ACTIVE', fcm_token: { $ne: null } };
     if (target_role === 'SUPER_ADMIN') query.role = 'SUPER_ADMIN';
@@ -166,19 +187,27 @@ class NotificationService {
 
     if (tokens.length === 0) return;
 
-const chunkSize = 500;
+    const chunkSize = 500;
     for (let i = 0; i < tokens.length; i += chunkSize) {
       const chunk = tokens.slice(i, i + chunkSize);
       
       const payload = {
-        // 1. هيكل الإشعار النقي (كما في دكاني تماماً)
         notification: { 
           title: title, 
-          body: message 
+          body: message,
+          //  إضافة الصورة بشكل آمن (الصورة الكبيرة + الأيقونة)
+          imageUrl: absoluteImageUrl
         },
-        // 2. تمرير الرابط في الـ data بطريقة آمنة
+        //  لكي ينزل الإشعار من أعلى الشاشة مثل واتساب (Heads-up Notification)
+        android: {
+          priority: 'high',
+          notification: {
+            icon: absoluteImageUrl, // الأيقونة الصغيرة بجوار النص
+            sound: 'default'
+          }
+        },
         data: {
-          url: link || '/' // استخدمنا اسم url بدلاً من click_action لتجنب تعارض فايربيز
+          url: link || '/' 
         },
         tokens: chunk,
       };
