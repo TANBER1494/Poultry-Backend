@@ -128,7 +128,7 @@ class NotificationService {
         target_user_id,
         title,
         message,
-        link,
+        link
       ).catch((err) => {
         console.error('[FCM Background Error]:', err.message);
       });
@@ -150,19 +150,9 @@ class NotificationService {
     target_user_id,
     title,
     message,
-    link,
-    type
+    link
   ) {
-    if (!admin.apps.length) return; 
-
-    //  1. تجهيز روابط الصور
-    const baseUrl = process.env.CLIENT_URL || 'https://poultry-frontend-eta.vercel.app';
-    let iconFile = 'logo.png';
-    if (type === 'HIGH_MORTALITY' || type === 'LARGE_EXPENSE') iconFile = 'alert.png';
-    else if (type === 'EGG_SALE' || type === 'INVOICE') iconFile = 'invoice.png';
-    else if (type === 'DAILY_LOG') iconFile = 'badge.png';
-    
-    const absoluteIconUrl = `${baseUrl}/${iconFile}`;
+    if (!admin.apps.length) return; // الخروج بصمت إذا لم يعمل فايربيز
 
     let query = { status: 'ACTIVE', fcm_token: { $ne: null } };
     if (target_role === 'SUPER_ADMIN') query.role = 'SUPER_ADMIN';
@@ -176,26 +166,30 @@ class NotificationService {
 
     if (tokens.length === 0) return;
 
+    //  حل ثغرة فايربيز: إرسال بحد أقصى 500 توكن في الدفعة الواحدة
     const chunkSize = 500;
     for (let i = 0; i < tokens.length; i += chunkSize) {
       const chunk = tokens.slice(i, i + chunkSize);
-      
+
       const payload = {
-        // 1. هيكل الإشعار النقي (كما في دكاني تماماً)
-        notification: { 
-          title: title, 
-          body: message 
+        notification: {
+          title: title,
+          body: message,
         },
-        // 2. تمرير الرابط في الـ data بطريقة آمنة
-        data: {
-          url: link || '/' // استخدمنا اسم url بدلاً من click_action لتجنب تعارض فايربيز
+        //  السحر المعماري الجديد: توجيه الويب المدمج من فايربيز
+        webpush: {
+          fcm_options: {
+            link: link || '/', // الرابط الذي أصلحناه في الكنترولر
+          },
         },
         tokens: chunk,
       };
 
       try {
         const response = await admin.messaging().sendEachForMulticast(payload);
-        console.log(`FCM Sent: ${response.successCount} Success, ${response.failureCount} Failed`);
+        console.log(
+          `FCM Sent: ${response.successCount} Success, ${response.failureCount} Failed`
+        );
       } catch (err) {
         console.error('FCM Multicast Error:', err.message);
       }
