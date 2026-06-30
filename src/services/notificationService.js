@@ -150,9 +150,24 @@ class NotificationService {
     target_user_id,
     title,
     message,
-    link 
+    link,
+    type // 🚀 استقبال نوع الإشعار
   ) {
     if (!admin.apps.length) return; 
+
+    // ==========================================
+    // 🚀 هندسة الصور: تحديد الرابط الكامل (Absolute URL)
+    // ==========================================
+    const baseUrl = process.env.CLIENT_URL || 'https://poultry-frontend-eta.vercel.app';
+    
+    let iconFile = 'logo.png';
+    if (type === 'HIGH_MORTALITY' || type === 'LARGE_EXPENSE') iconFile = 'alert.png';
+    else if (type === 'EGG_SALE' || type === 'INVOICE') iconFile = 'invoice.png';
+    else if (type === 'DAILY_LOG') iconFile = 'badge.png';
+    
+    const absoluteIconUrl = `${baseUrl}/${iconFile}`;
+    const badgeUrl = `${baseUrl}/badge.png`; // الأيقونة البيضاء الصغيرة في شريط الإشعارات العلوي
+    // ==========================================
 
     let query = { status: 'ACTIVE', fcm_token: { $ne: null } };
     if (target_role === 'SUPER_ADMIN') query.role = 'SUPER_ADMIN';
@@ -166,19 +181,33 @@ class NotificationService {
 
     if (tokens.length === 0) return;
 
-const chunkSize = 500;
+    const chunkSize = 500;
     for (let i = 0; i < tokens.length; i += chunkSize) {
       const chunk = tokens.slice(i, i + chunkSize);
       
       const payload = {
-        // 1. هيكل الإشعار النقي (كما في دكاني تماماً)
         notification: { 
           title: title, 
           body: message 
         },
-        // 2. تمرير الرابط في الـ data بطريقة آمنة
+        //  السحر هنا: استخدام إعدادات الـ WebPush المخصصة للـ PWA
+        webpush: {
+          headers: {
+            Urgency: 'high' // إيقاظ الموبايل
+          },
+          notification: {
+            icon: absoluteIconUrl, // اللوجو المخصص لكل إشعار
+            badge: badgeUrl, // أيقونة الشريط العلوي
+            vibrate: [200, 100, 200] // تفعيل الاهتزاز
+          },
+          // التوجيه التلقائي المدعوم من فايربيز
+          fcmOptions: {
+            link: link || '/'
+          }
+        },
+        // كبيانات احتياطية للـ Service Worker الخاص بنا
         data: {
-          url: link || '/' // استخدمنا اسم url بدلاً من click_action لتجنب تعارض فايربيز
+          click_action: link || '/'
         },
         tokens: chunk,
       };
