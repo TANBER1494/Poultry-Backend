@@ -2,6 +2,7 @@ const InventoryItem = require('../models/InventoryItem');
 const InventoryMovement = require('../models/InventoryMovement');
 const Farm = require('../models/Farm');
 const inventoryService = require('../services/inventoryService');
+const notificationService = require('../services/notificationService'); 
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
@@ -82,9 +83,54 @@ const recordInventoryMovement = asyncHandler(async (req, res, next) => {
     return res.status(200).json({ message: 'الحركة مسجلة مسبقاً', movement: result.movement });
   }
 
+  // 2️ إطلاق إشعار للمشرف إذا كان التوريد معلقاً (تم إرساله من المالك وينتظر الاستلام)
+  if (req.body.status === 'PENDING' && req.user.role === 'OWNER') {
+    try {
+      await notificationService.sendAppNotification({
+        title: '🚚 توريد علف/أصناف في الطريق',
+        message: `تم إرسال توريد جديد إلى المزرعة بكمية ${req.body.quantity}. يرجى تأكيد الاستلام فور وصوله.`,
+        type: 'FEED_DELIVERY',
+        target_role: 'SUPERVISOR',
+        organization_id: req.user.organization_id,
+        link: '/dashboard/inventory/pending' // صفحة التأكيد في الفرونت إند
+      });
+    } catch (err) {
+      console.error('فشل إرسال إشعار التوريد:', err.message);
+    }
+  }
+
   res.status(201).json({
-    message: 'تم تسجيل الحركة وتحديث الأرصدة بنجاح',
+    message: req.body.status === 'PENDING' ? 'تم تسجيل التوريد وبانتظار تأكيد المشرف' : 'تم تسجيل الحركة وتحديث الأرصدة بنجاح',
     movement: result.movement
+  });
+});
+
+/**
+ * @desc    Confirm pending inventory movement (e.g., feed delivery)
+ * @route   PUT /api/inventory/movements/:id/confirm
+ * @access  Private (Owner, Supervisor)
+ */
+const confirmInventoryMovement = asyncHandler(async (req, res, next) => {
+  // 3️ استدعاء دالة التأكيد من الخدمة (لترصيد الكميات في المخزن الفعلي)
+  const movement = await inventoryService.confirmMovement(req.params.id, req.user._id, req.user.organization_id);
+
+  // 4️ إطلاق إشعار للمالك يفيد بأن المشرف استلم البضاعة وتأكد منها
+  try {
+    await notificationService.sendAppNotification({
+      title: '✅ تأكيد استلام توريد',
+      message: `قام المشرف ${req.user.name} بتأكيد استلام التوريد وتم إضافته لرصيد المزرعة بنجاح.`,
+      type: 'FEED_CONFIRMED',
+      target_role: 'OWNER',
+      organization_id: req.user.organization_id,
+      link: '/dashboard/inventory'
+    });
+  } catch (err) {
+    console.error('فشل إرسال إشعار التأكيد:', err.message);
+  }
+
+  res.status(200).json({
+    message: 'تم تأكيد الاستلام وتحديث رصيد المخزن بنجاح',
+    movement
   });
 });
 
@@ -152,7 +198,8 @@ module.exports = {
   addInventoryItem, 
   getInventoryItems, 
   recordInventoryMovement, 
-  getItemMovements ,
+  confirmInventoryMovement,
+  getItemMovements,
   updateInventoryItem,
   deleteInventoryItem,
   transferToBarn

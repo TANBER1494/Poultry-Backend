@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const inventoryMovementSchema = new mongoose.Schema(
   {
-    local_id: { 
+    local_id: {
       type: String,
       required: true,
       unique: true,
@@ -27,24 +27,24 @@ const inventoryMovementSchema = new mongoose.Schema(
     cycle_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Cycle',
-      default: null, 
+      default: null,
     },
     performed_by: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true, 
+      required: true,
     },
-   movement_type: {
+    movement_type: {
       type: String,
       enum: [
-        'PRODUCTION',    
-        'TRANSFER_IN',   
-        'PURCHASE',      
-        'CONSUMPTION',   
-        'ADJUSTMENT',    
+        'PRODUCTION',
+        'TRANSFER_IN',
+        'PURCHASE',
+        'CONSUMPTION',
+        'ADJUSTMENT',
         'RETURN',
         'SALE',
-        'BARN_TRANSFER' 
+        'BARN_TRANSFER',
       ],
       required: true,
     },
@@ -56,7 +56,7 @@ const inventoryMovementSchema = new mongoose.Schema(
     quantity: {
       type: Number,
       required: [true, 'يجب تحديد الكمية'],
-      min: [0.01, 'الكمية يجب أن تكون أكبر من الصفر'], 
+      min: [0.01, 'الكمية يجب أن تكون أكبر من الصفر'],
     },
     unit_cost_at_time: {
       type: Number,
@@ -72,10 +72,20 @@ const inventoryMovementSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
-    reference_doc: { 
+    reference_doc: {
       type: String,
       trim: true,
-      default: '', 
+      default: '',
+    },
+    status: {
+      type: String,
+      enum: ['PENDING', 'COMPLETED'],
+      default: 'COMPLETED',
+    },
+    confirmed_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
     },
   },
   { timestamps: true }

@@ -6,44 +6,54 @@ const notificationSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Organization',
       required: true,
-      index: true
+      index: true,
     },
     farm_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Farm',
-      default: null
+      default: null,
     },
     target_role: {
       type: String,
-      enum: ['SUPER_ADMIN', 'OWNER', 'SUPERVISOR'], 
-      required: true
+      enum: ['SUPER_ADMIN', 'OWNER', 'SUPERVISOR', 'WORKER'],
+      required: true,
     },
     target_user_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      default: null 
+      default: null,
     },
     title: {
       type: String,
-      required: true
+      required: true,
     },
     message: {
       type: String,
-      required: true
+      required: true,
     },
     type: {
       type: String,
-      enum: ['CYCLE_STARTED', 'CYCLE_ENDED', 'HIGH_MORTALITY', 'LARGE_EXPENSE', 'FEED_DELIVERY', 'SYSTEM'],
-      required: true
+      enum: [
+        'CYCLE_STARTED',
+        'CYCLE_ENDED',
+        'HIGH_MORTALITY',
+        'LARGE_EXPENSE',
+        'FEED_DELIVERY',
+        'FEED_CONFIRMED',
+        'DAILY_LOG',
+        'EGG_SALE',
+        'SYSTEM',
+      ],
+      required: true,
     },
     link: {
       type: String,
-      default: null
+      default: null,
     },
     is_read: {
       type: Boolean,
-      default: false
-    }
+      default: false,
+    },
   },
   { timestamps: true }
 );
@@ -52,6 +62,9 @@ const notificationSchema = new mongoose.Schema(
 notificationSchema.index({ organization_id: 1, target_role: 1, createdAt: -1 });
 
 //  التطوير المعماري 2: (TTL Index) لحذف الإشعارات تلقائياً بعد 30 يوماً من إنشائها لتنظيف الداتا بيز
-notificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
+notificationSchema.index(
+  { createdAt: 1 },
+  { expireAfterSeconds: 30 * 24 * 60 * 60 }
+);
 
 module.exports = mongoose.model('Notification', notificationSchema);

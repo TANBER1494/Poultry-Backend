@@ -8,7 +8,8 @@ const {
   getItemMovements,
   updateInventoryItem,
   deleteInventoryItem,
-  transferToBarn
+  transferToBarn,
+  confirmInventoryMovement
 } = require('../controllers/inventoryController');
 
 const { protect } = require('../middlewares/authMiddleware');
@@ -28,5 +29,6 @@ router.get('/items/:item_id/movements', authorize('OWNER'), getItemMovements);
 router.put('/items/:id', authorize('OWNER'), checkSubscription, updateInventoryItem);
 router.delete('/items/:id', authorize('OWNER'), checkSubscription, deleteInventoryItem);
 router.post('/transfer-to-barn', authorize('OWNER', 'SUPERVISOR'), checkSubscription, transferToBarn);
+router.put('/movements/:id/confirm', authorize('OWNER', 'SUPERVISOR'), checkSubscription, confirmInventoryMovement);
 
 module.exports = router;

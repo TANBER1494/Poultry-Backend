@@ -48,7 +48,7 @@ class NotificationService {
    * بناء الاستعلام الأساسي الموحد بناءً على صلاحيات المستخدم
    * @private
    */
-  _buildBaseQuery(user) {
+_buildBaseQuery(user) {
     const { role, _id, organization_id } = user;
     let query = {};
 
@@ -61,6 +61,10 @@ class NotificationService {
       query.organization_id = organization_id;
       query.target_role = 'SUPERVISOR';
       query.target_user_id = _id;
+    } else if (role === 'WORKER') { // إضافة صلاحية العامل
+      query.organization_id = organization_id;
+      query.target_role = 'WORKER';
+      query.target_user_id = _id; // العامل يرى إشعاراته المخصصة له فقط
     } else {
       throw new AppError('صلاحية غير صالحة للوصول إلى الإشعارات', 403);
     }

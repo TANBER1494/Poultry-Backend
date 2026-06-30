@@ -1,6 +1,8 @@
 const Cycle = require('../models/Cycle');
 const Farm = require('../models/Farm');
 const cycleService = require('../services/cycleService');
+// 1️ استدعاء خدمة الإشعارات
+const notificationService = require('../services/notificationService'); 
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
@@ -12,6 +14,24 @@ const startCycle = asyncHandler(async (req, res, next) => {
   if (Number(initial_bird_count) <= 0) return next(new AppError('لا يمكن أن يكون عدد الطيور صفراً أو سالباً', 400));
 
   const newCycle = await cycleService.startCycle(req.body, req.user.organization_id);
+
+  // ==========================================
+  //  إشعار بدء الدورة (من المالك إلى المشرف)
+  // ==========================================
+  try {
+    await notificationService.sendAppNotification({
+      title: '🐣 بدء دورة جديدة',
+      message: `تم تسكين دورة جديدة (${name}) في العنبر. يرجى متابعة العمليات التشغيلية واليوميات.`,
+      type: 'CYCLE_STARTED',
+      target_role: 'SUPERVISOR',
+      target_user_id: supervisor_id, //  توجيه الإشعار للمشرف المسؤول عن هذا العنبر تحديداً
+      organization_id: req.user.organization_id,
+      link: `/dashboard/cycles/${newCycle._id}` // توجيه المشرف لصفحة الدورة
+    });
+  } catch (err) {
+    console.error('فشل إرسال إشعار بدء الدورة:', err.message);
+  }
+
   res.status(201).json({ message: 'تم تسكين الدورة بنجاح وتفعيل العمليات التشغيلية للعنبر', cycle: newCycle });
 });
 
@@ -34,7 +54,7 @@ const getFarmCycles = asyncHandler(async (req, res, next) => {
 
 const getCycleDetails = asyncHandler(async (req, res, next) => {
   const cycle = await Cycle.findOne({ _id: req.params.id, organization_id: req.user.organization_id })
-    .populate('farm_id', 'name') // 🛡️ جلب اسم المزرعة
+    .populate('farm_id', 'name')
     .populate('barn_id', 'name capacity barn_type')
     .populate('supervisor_id', 'name phone')
     .lean();
@@ -46,6 +66,8 @@ const getCycleDetails = asyncHandler(async (req, res, next) => {
 const closeCycle = asyncHandler(async (req, res, next) => {
   if (!req.body.end_date) return next(new AppError('يجب تحديد تاريخ الإغلاق الفعلي للدورة', 400));
   const cycle = await cycleService.closeCycle(req.params.id, req.body.end_date, req.user.organization_id);
+
+  // (اختياري) يمكنك إضافة إشعار هنا لانتهاء الدورة إذا أردت مستقبلاً
 
   res.status(200).json({
     message: 'تم إقفال الدورة محاسبياً بنجاح، وتحويل العنبر لوضع التطهير والصيانة',
@@ -65,8 +87,25 @@ const recordCycleSale = asyncHandler(async (req, res, next) => {
     return next(new AppError('جميع بيانات المبيعات الأساسية مطلوبة', 400));
   }
 
-  //  التعديل: إرسال req.user.role إلى السيرفيس
   const result = await cycleService.recordCycleSale(req.params.id, req.body, req.user.organization_id, req.user._id, req.user.role);
+
+  // ==========================================
+  // إشعار مبيعات البيض (من المشرف إلى المالك)
+  // ==========================================
+  if (sale_category === 'EGGS') {
+    try {
+      await notificationService.sendAppNotification({
+        title: '🥚 مبيعات بيض جديدة',
+        message: `قام المشرف ${req.user.name} بتسجيل مبيعات بيض (كمية: ${quantity} طبق/كرتونة).`,
+        type: 'EGG_SALE', // النوع الذي أضفناه للموديل سابقاً
+        target_role: 'OWNER',
+        organization_id: req.user.organization_id,
+        link: `/dashboard/invoices/${result.invoice._id}` // توجيه المالك لمشاهدة تفاصيل الفاتورة
+      });
+    } catch (err) {
+      console.error('فشل إرسال إشعار مبيعات البيض:', err.message);
+    }
+  }
 
   res.status(201).json({
     message: 'تم تسجيل فاتورة المبيعات وتوجيه الحسابات بنجاح',
