@@ -6,10 +6,9 @@ module.exports = {
   init: (httpServer) => {
     const { Server } = require('socket.io');
     
-    // 1. تقييد صارم للمصادر (Strict CORS Policy)
-    io = new Server(httpServer, {
+ io = new Server(httpServer, {
       cors: {
-        origin: process.env.NODE_ENV === 'production' ? [process.env.CLIENT_URL] : ['http://localhost:5173', 'http://localhost:3000'],
+        origin: true,
         methods: ['GET', 'POST'],
         credentials: true
       }
