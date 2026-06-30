@@ -126,7 +126,8 @@ _buildBaseQuery(user) {
         organization_id,
         target_user_id,
         title,
-        message
+        message,
+        link
       ).catch((err) => {
         console.error('[FCM Background Error]:', err.message);
       });
@@ -142,12 +143,13 @@ _buildBaseQuery(user) {
    *  الترقية المعمارية: إرسال FCM مع تقسيم الطلبات (Chunking) لمنع الانهيار
    * @private
    */
-  async _sendPushNotifications(
+async _sendPushNotifications(
     target_role,
     organization_id,
     target_user_id,
     title,
-    message
+    message,
+    link 
   ) {
     if (!admin.apps.length) return; // الخروج بصمت إذا لم يعمل فايربيز
 
@@ -167,8 +169,13 @@ _buildBaseQuery(user) {
     const chunkSize = 500;
     for (let i = 0; i < tokens.length; i += chunkSize) {
       const chunk = tokens.slice(i, i + chunkSize);
+      
       const payload = {
         notification: { title, body: message },
+        //  التعديل الثاني الجوهري: إضافة كائن data لتوجيه الموبايل
+        data: {
+          click_action: link || '/', // التوجيه للرابط، أو للرئيسية كاحتياطي
+        },
         tokens: chunk,
       };
 
