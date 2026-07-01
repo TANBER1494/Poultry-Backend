@@ -15,7 +15,7 @@ const startCycle = asyncHandler(async (req, res, next) => {
     start_date,
     initial_bird_count,
   } = req.body;
-  
+
   if (
     !farm_id ||
     !barn_id ||
@@ -152,9 +152,9 @@ const recordCycleSale = asyncHandler(async (req, res, next) => {
   if (sale_category === 'EGGS') {
     try {
       await notificationController.sendAppNotification({
-        title: '🥚 مبيعات بيض جديدة',
+        title: ' مبيعات بيض جديدة',
         message: `قام المشرف ${req.user.name} بتسجيل مبيعات بيض (كمية: ${quantity} طبق/كرتونة).`,
-        type: 'EGG_SALE', 
+        type: 'EGG_SALE',
         target_role: 'OWNER',
         organization_id: req.user.organization_id,
         link: `/owner/sales`,
