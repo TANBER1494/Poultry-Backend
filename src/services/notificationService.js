@@ -167,14 +167,19 @@ class NotificationService {
     if (tokens.length === 0) return;
 
     const chunkSize = 500;
+    // داخل حلقة الـ for في دالة _sendPushNotifications
     for (let i = 0; i < tokens.length; i += chunkSize) {
       const chunk = tokens.slice(i, i + chunkSize);
       
-      // 🚀 الهيكل النقي والمستقر مطابق تماماً لدكاني
       const payload = {
+        // 1. هيكل الإشعار النقي (بدون صور لتجنب أي Crash في الموبايل حالياً)
         notification: { 
-          title: title, 
-          body: message 
+          title: String(title), 
+          body: String(message) 
+        },
+        // 2. تمرير اللينك فقط
+        data: {
+          click_action: String(link || '/')
         },
         tokens: chunk,
       };
