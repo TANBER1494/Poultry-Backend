@@ -50,7 +50,6 @@ const sendAppNotification = async ({ title, message, type, target_role, target_u
     else if (target_user_id) room = target_user_id.toString();
 
     if (room && socket.getIO()) {
-      //  التدخل الجراحي 1: توحيد اسم الحدث مع الفرونت إند ليتم التقاطه لحظياً
       socket.getIO().to(room).emit('new_notification', newNotification);
     }
 
@@ -64,15 +63,43 @@ const sendAppNotification = async ({ title, message, type, target_role, target_u
     const tokens = targetUsers.map(user => user.fcm_token).filter(Boolean);
 
     if (tokens.length > 0) {
+      
+      //  1. نظام تخصيص الأيقونات (اللوجو) بناءً على النوع
+      const BASE_URL = 'https://poultry-frontend-eta.vercel.app';
+      let notificationIcon = `${BASE_URL}/pwa-192x192.png`; // اللوجو الأساسي (سيخفي حرف الـ P)
+
+      // يمكنك مستقبلاً رفع صور لكل نوع في مجلد public في الفرونت إند واستدعائها هنا
+      switch (type) {
+        case 'EGG_SALE':
+          // notificationIcon = `${BASE_URL}/egg-icon.png`; // قم بتفعيلها إذا رفعت صورة بيضة
+          break;
+        case 'HIGH_MORTALITY':
+          // notificationIcon = `${BASE_URL}/alert-icon.png`; 
+          break;
+        case 'FEED_DELIVERY':
+          // notificationIcon = `${BASE_URL}/truck-icon.png`;
+          break;
+      }
+
+      //  2. بناء الـ Payload بمعايير Web Push الرسمية
       const payload = {
         notification: {
           title: title,
           body: message,
         },
-        //  التدخل الجراحي 2: تمرير الرابط بشكل آمن جداً للـ Service Worker
         data: {
-          click_action: String(link || '/'),
-          url: String(link || '/')
+          url: String(link || '/'),
+          click_action: String(link || '/')
+        },
+        // هنا يكمن السحر الذي سيجبر الأندرويد على الاستجابة
+        webpush: {
+          fcm_options: {
+            link: String(link || '/') // هذا السطر سيجعل الإشعار يفتح التطبيق مباشرة على المسار الصحيح
+          },
+          notification: {
+            icon: notificationIcon, // هذا السطر سيخفي حرف P ويضع اللوجو
+            dir: 'rtl'
+          }
         },
         tokens: tokens, 
       };
