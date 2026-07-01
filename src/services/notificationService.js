@@ -166,20 +166,15 @@ class NotificationService {
 
     if (tokens.length === 0) return;
 
-//  حل ثغرة فايربيز: إرسال بحد أقصى 500 توكن في الدفعة الواحدة
     const chunkSize = 500;
     for (let i = 0; i < tokens.length; i += chunkSize) {
       const chunk = tokens.slice(i, i + chunkSize);
       
+      // 🚀 الهيكل النقي والمستقر مطابق تماماً لدكاني
       const payload = {
-        // 1. هيكل الإشعار النقي (كما في دكاني تماماً)
         notification: { 
           title: title, 
           body: message 
-        },
-        // 2. تمرير الرابط في الـ data بطريقة آمنة
-        data: {
-          url: link || '/' // استخدمنا اسم url بدلاً من click_action لتجنب تعارض فايربيز
         },
         tokens: chunk,
       };
