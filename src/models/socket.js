@@ -10,6 +10,15 @@ module.exports = {
         methods: ['GET', 'POST']
       }
     });
+
+    // 🚀 الجراحة الأولى: السماح للسوكيت بالاستماع وضم المستخدم لغرفته
+    io.on('connection', (socket) => {
+      socket.on('joinRoom', (room) => {
+        socket.join(room);
+        console.log(`🔌 Socket ${socket.id} joined room: ${room}`);
+      });
+    });
+
     return io;
   },
   // استدعاء السيرفر من أي كنترولر
