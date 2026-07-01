@@ -150,19 +150,9 @@ class NotificationService {
     target_user_id,
     title,
     message,
-    link,
-    type 
+    link 
   ) {
     if (!admin.apps.length) return; 
-
-    // 1. تحديد الرابط الكامل للصورة بناءً على نوع الإشعار (مهم جداً ألا يكون نسبياً)
-    const baseUrl = process.env.CLIENT_URL || 'https://poultry-frontend-eta.vercel.app';
-    let iconFile = 'logo.png';
-    if (type === 'HIGH_MORTALITY' || type === 'LARGE_EXPENSE') iconFile = 'alert.png';
-    else if (type === 'EGG_SALE' || type === 'INVOICE') iconFile = 'invoice.png';
-    else if (type === 'DAILY_LOG') iconFile = 'badge.png';
-    
-    const absoluteIconUrl = `${baseUrl}/${iconFile}`;
 
     let query = { status: 'ACTIVE', fcm_token: { $ne: null } };
     if (target_role === 'SUPER_ADMIN') query.role = 'SUPER_ADMIN';
@@ -180,16 +170,11 @@ class NotificationService {
     for (let i = 0; i < tokens.length; i += chunkSize) {
       const chunk = tokens.slice(i, i + chunkSize);
       
+      //  الهيكل النقي والمستقر مطابق تماماً لدكاني
       const payload = {
-        // 2. نفس هيكل دكاني المستقر تماماً
         notification: { 
           title: title, 
-          body: message,
-          icon: absoluteIconUrl // تمرير الصورة بأمان
-        },
-        // 3. تمرير رابط التوجيه ليلتقطه الفرونت إند
-        data: {
-          click_action: link || '/' 
+          body: message 
         },
         tokens: chunk,
       };
