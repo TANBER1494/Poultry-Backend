@@ -11,11 +11,13 @@ const AppError = require('../utils/AppError');
 try {
   let serviceAccount;
 
+  // 1. إذا كان لديك الـ Base64 (وهو الأضمن والأسهل)
   if (process.env.FIREBASE_BASE64_KEY) {
     const decodedKey = Buffer.from(process.env.FIREBASE_BASE64_KEY, 'base64').toString('utf8');
     serviceAccount = JSON.parse(decodedKey);
     console.log('✅ Loaded Firebase Config via Base64');
   } 
+  // 2. إذا لم يوجد، حاول الطريقة القديمة (المتغيرات المفردة)
   else if (process.env.FIREBASE_PRIVATE_KEY) {
     serviceAccount = {
       projectId: process.env.FIREBASE_PROJECT_ID,
@@ -23,6 +25,7 @@ try {
       privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
     };
   } 
+  // 3. المحاولة المحلية
   else {
     serviceAccount = require('../config/firebase-key.json');
   }
@@ -50,8 +53,7 @@ const sendAppNotification = async ({ title, message, type, target_role, target_u
     else if (target_user_id) room = target_user_id.toString();
 
     if (room && socket.getIO()) {
-      //  الجراحة الثانية: توحيد اسم الحدث ليتطابق مع الفرونت إند
-      socket.getIO().to(room).emit('new_notification', newNotification);
+      socket.getIO().to(room).emit('receiveNotification', newNotification);
     }
 
     let query = { status: 'ACTIVE', fcm_token: { $ne: null } };
@@ -68,12 +70,6 @@ const sendAppNotification = async ({ title, message, type, target_role, target_u
         notification: {
           title: title,
           body: message,
-          //  الجراحة الثالثة: إضافة اللوجو ليظهر بدلاً من حرف P
-          icon: 'https://poultry-frontend-eta.vercel.app/pwa-192x192.png'
-        },
-        //  الجراحة الرابعة: تمرير الرابط للمتصفح لكي يفتحه عند الضغط
-        data: {
-          click_action: link || '/' 
         },
         tokens: tokens, 
       };
@@ -165,6 +161,7 @@ const registerFcmToken = asyncHandler(async (req, res, next) => {
 });
 
 const testSendNotification = asyncHandler(async (req, res, next) => {
+  // نمرر البيانات مباشرة لدالة المدفع الذكي
   const notification = await sendAppNotification(req.body);
   res.status(200).json({ message: 'تم إرسال الإشعار التجريبي بنجاح', notification });
 });
