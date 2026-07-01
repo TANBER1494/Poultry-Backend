@@ -66,18 +66,18 @@ const sendAppNotification = async ({ title, message, type, target_role, target_u
       
       //  1. نظام تخصيص الأيقونات (اللوجو) بناءً على النوع
       const BASE_URL = 'https://poultry-frontend-eta.vercel.app';
-      let notificationIcon = `${BASE_URL}/pwa-192x192.png`; // اللوجو الأساسي (سيخفي حرف الـ P)
+      let notificationIcon = `${BASE_URL}/pwa-192x192.png`;
 
       // يمكنك مستقبلاً رفع صور لكل نوع في مجلد public في الفرونت إند واستدعائها هنا
       switch (type) {
         case 'EGG_SALE':
-          // notificationIcon = `${BASE_URL}/egg-icon.png`; // قم بتفعيلها إذا رفعت صورة بيضة
+          notificationIcon = `${BASE_URL}/egg-icon.png`; 
           break;
         case 'HIGH_MORTALITY':
-          // notificationIcon = `${BASE_URL}/alert-icon.png`; 
+          notificationIcon = `${BASE_URL}/alert-icon.png`; 
           break;
         case 'FEED_DELIVERY':
-          // notificationIcon = `${BASE_URL}/truck-icon.png`;
+          notificationIcon = `${BASE_URL}/truck-icon.png`;
           break;
       }
 
@@ -94,10 +94,11 @@ const sendAppNotification = async ({ title, message, type, target_role, target_u
         // هنا يكمن السحر الذي سيجبر الأندرويد على الاستجابة
         webpush: {
           fcm_options: {
-            link: String(link || '/') // هذا السطر سيجعل الإشعار يفتح التطبيق مباشرة على المسار الصحيح
+            link: String(link || '/') 
           },
           notification: {
-            icon: notificationIcon, // هذا السطر سيخفي حرف P ويضع اللوجو
+            icon: notificationIcon, 
+            badge: `${BASE_URL}/badge.png`,
             dir: 'rtl'
           }
         },
