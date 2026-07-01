@@ -1,49 +1,21 @@
-const jwt = require('jsonwebtoken');
-
 let io;
 
 module.exports = {
+  // تهيئة السيرفر
   init: (httpServer) => {
     const { Server } = require('socket.io');
-    
- io = new Server(httpServer, {
+    io = new Server(httpServer, {
       cors: {
-        origin: true,
-        methods: ['GET', 'POST'],
-        credentials: true
+        origin: '*', // سنقوم بتأمينه لاحقاً ليتوافق مع الـ Frontend
+        methods: ['GET', 'POST']
       }
     });
-
-    // 2. الجدار الناري للاتصالات (Socket Authentication Middleware)
-    io.use((socket, next) => {
-      try {
-        // استخراج التوكن سواء تم إرساله في الـ auth أو في الـ headers
-        const token = socket.handshake.auth?.token || 
-                      (socket.handshake.headers?.authorization && socket.handshake.headers.authorization.split(' ')[1]);
-        
-        if (!token) {
-          console.warn(`[Socket] اتصال مرفوض: توكن مفقود (ID: ${socket.id})`);
-          return next(new Error('إجراء أمني: غير مصرح بالاتصال لعدم وجود توكن'));
-        }
-
-        // فك تشفير التوكن والتحقق من صحته
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        
-        // إرفاق بيانات المستخدم الموثق بـ session الخاص بالسوكت
-        socket.user = decoded; 
-        next();
-      } catch (err) {
-        console.warn(`[Socket] اتصال مرفوض: توكن غير صالح (ID: ${socket.id})`);
-        return next(new Error('إجراء أمني: التوكن غير صالح أو منتهي الصلاحية'));
-      }
-    });
-
     return io;
   },
-
+  // استدعاء السيرفر من أي كنترولر
   getIO: () => {
     if (!io) {
-      throw new Error('Socket.io لم يتم تهيئته بعد');
+      throw new Error('Socket.io لم يتم تهيئته بعد!');
     }
     return io;
   }

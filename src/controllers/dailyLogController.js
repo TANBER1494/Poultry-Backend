@@ -1,5 +1,5 @@
 const dailyLogService = require('../services/dailyLogService');
-const notificationService = require('../services/notificationService');
+const notificationController = require('../controllers/notificationController'); 
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
@@ -46,8 +46,8 @@ const createDailyLog = asyncHandler(async (req, res, next) => {
   //  قسم إطلاق الإشعارات اللحظية (Sockets & FCM)
   // ==========================================
   try {
-    // 1. إبلاغ المالك بنجاح تسجيل اليومية مع تصحيح الرابط
-    await notificationService.sendAppNotification({
+    // 1. إبلاغ المالك بنجاح تسجيل اليومية
+    await notificationController.sendAppNotification({
       title: 'تم تسجيل يومية جديدة',
       message: `قام المشرف ${req.user.name} بتسجيل يومية للعنبر لعمر ${age_in_days} يوم.`,
       type: 'DAILY_LOG',
@@ -56,22 +56,22 @@ const createDailyLog = asyncHandler(async (req, res, next) => {
       link: `/owner/farms/${farmId}/cycles/${cycle_id}`,
     });
 
-    // 2. تحذير النافق (تم توجيهه للمشرف والمالك بدلاً من العامل)
+    // 2. تحذير النافق 
     const deadBirds = Number(mortality_count) || 0;
     if (deadBirds > 10) {
       // إشعار للمشرف (نفس المستخدم الحالي كتحذير بصري له)
-      await notificationService.sendAppNotification({
+      await notificationController.sendAppNotification({
         title: '⚠️ تحذير: ارتفاع نسبة النافق',
         message: `لقد قمت للتو بتسجيل نافق عالي (${deadBirds} طيور). يرجى اتخاذ الإجراءات الطبية اللازمة فوراً.`,
         type: 'HIGH_MORTALITY',
         target_role: 'SUPERVISOR',
-        target_user_id: req.user._id, // توجيه للمشرف نفسه
+        target_user_id: req.user._id, 
         organization_id: orgId,
         link: `/supervisor/daily-logs`,
       });
 
       // إشعار طارئ للمالك ليكون على علم بالكارثة المحتملة
-      await notificationService.sendAppNotification({
+      await notificationController.sendAppNotification({
         title: '🚨 تنبيه طارئ: نافق غير طبيعي',
         message: `عاجل: تم تسجيل عدد (${deadBirds}) نافق في دورة العنبر بواسطة المشرف ${req.user.name}.`,
         type: 'HIGH_MORTALITY',

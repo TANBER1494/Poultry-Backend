@@ -2,7 +2,7 @@ const InventoryItem = require('../models/InventoryItem');
 const InventoryMovement = require('../models/InventoryMovement');
 const Farm = require('../models/Farm');
 const inventoryService = require('../services/inventoryService');
-const notificationService = require('../services/notificationService');
+const notificationController = require('../controllers/notificationController');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
@@ -35,7 +35,6 @@ const addInventoryItem = asyncHandler(async (req, res, next) => {
   }
 
   try {
-    //  الترقية المعمارية: تمرير orgId والاعتماد على قوة الفهرس المركب في MongoDB لمنع التكرار
     const newItem = await InventoryItem.create({
       organization_id: orgId,
       farm_id,
@@ -50,7 +49,6 @@ const addInventoryItem = asyncHandler(async (req, res, next) => {
       item: newItem,
     });
   } catch (error) {
-    // التقاط خطأ التكرار من المحرك مباشرة (لتوفير Database Round-trip)
     if (error.code === 11000) {
       return next(new AppError('هذا الصنف مسجل بالفعل في مخزن المزرعة', 400));
     }
@@ -67,7 +65,6 @@ const getInventoryItems = asyncHandler(async (req, res, next) => {
   const { farm_id } = req.params;
   const orgId = req.user.organization_id;
 
-  //  الترقية المعمارية: استعلام مباشر يعتمد على orgId يوفر الحاجة للبحث في جدول Farm
   const items = await InventoryItem.find({
     farm_id,
     organization_id: orgId,
@@ -121,10 +118,11 @@ const recordInventoryMovement = asyncHandler(async (req, res, next) => {
       .json({ message: 'الحركة مسجلة مسبقاً', movement: result.movement });
   }
 
-  // 2️ إطلاق إشعار للمشرف إذا كان التوريد معلقاً (تم إرساله من المالك وينتظر الاستلام)
+  // 2️ إطلاق إشعار للمشرف إذا كان التوريد معلقاً
   if (req.body.status === 'PENDING' && req.user.role === 'OWNER') {
     try {
-      await notificationService.sendAppNotification({
+      //  تم الاستبدال
+      await notificationController.sendAppNotification({
         title: '🚚 توريد علف/أصناف في الطريق',
         message: `تم إرسال توريد جديد إلى المزرعة بكمية ${req.body.quantity}. يرجى تأكيد الاستلام فور وصوله.`,
         type: 'FEED_DELIVERY',
@@ -152,7 +150,6 @@ const recordInventoryMovement = asyncHandler(async (req, res, next) => {
  * @access  Private (Owner, Supervisor)
  */
 const confirmInventoryMovement = asyncHandler(async (req, res, next) => {
-  // 3️ استدعاء دالة التأكيد من الخدمة (لترصيد الكميات في المخزن الفعلي)
   const movement = await inventoryService.confirmMovement(
     req.params.id,
     req.user._id,
@@ -161,7 +158,8 @@ const confirmInventoryMovement = asyncHandler(async (req, res, next) => {
 
   // 4️ إطلاق إشعار للمالك يفيد بأن المشرف استلم البضاعة وتأكد منها
   try {
-    await notificationService.sendAppNotification({
+    //  تم الاستبدال
+    await notificationController.sendAppNotification({
       title: '✅ تأكيد استلام توريد',
       message: `قام المشرف ${req.user.name} بتأكيد استلام التوريد وتم إضافته لرصيد المزرعة بنجاح.`,
       type: 'FEED_CONFIRMED',
@@ -188,7 +186,6 @@ const getItemMovements = asyncHandler(async (req, res, next) => {
   const { item_id } = req.params;
   const orgId = req.user.organization_id;
 
-  //  الترقية المعمارية: سد ثغرة IDOR في استعلام واحد فقط (O(1)) بدلاً من استعلامين
   const item = await InventoryItem.findOne({
     _id: item_id,
     organization_id: orgId,

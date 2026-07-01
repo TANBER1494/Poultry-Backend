@@ -1,8 +1,7 @@
 const Cycle = require('../models/Cycle');
 const Farm = require('../models/Farm');
 const cycleService = require('../services/cycleService');
-// 1️ استدعاء خدمة الإشعارات
-const notificationService = require('../services/notificationService');
+const notificationController = require('../controllers/notificationController');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
@@ -16,6 +15,7 @@ const startCycle = asyncHandler(async (req, res, next) => {
     start_date,
     initial_bird_count,
   } = req.body;
+  
   if (
     !farm_id ||
     !barn_id ||
@@ -41,12 +41,12 @@ const startCycle = asyncHandler(async (req, res, next) => {
   //  إشعار بدء الدورة (من المالك إلى المشرف)
   // ==========================================
   try {
-    await notificationService.sendAppNotification({
+    await notificationController.sendAppNotification({
       title: '🐣 بدء دورة جديدة',
       message: `تم تسكين دورة جديدة (${name}) في العنبر. يرجى متابعة العمليات التشغيلية واليوميات.`,
       type: 'CYCLE_STARTED',
       target_role: 'SUPERVISOR',
-      target_user_id: supervisor_id, //  توجيه الإشعار للمشرف المسؤول عن هذا العنبر تحديداً
+      target_user_id: supervisor_id,
       organization_id: req.user.organization_id,
       link: `/supervisor/daily-logs`,
     });
@@ -103,8 +103,6 @@ const closeCycle = asyncHandler(async (req, res, next) => {
     req.user.organization_id
   );
 
-  // (اختياري) يمكنك إضافة إشعار هنا لانتهاء الدورة إذا أردت مستقبلاً
-
   res.status(200).json({
     message:
       'تم إقفال الدورة محاسبياً بنجاح، وتحويل العنبر لوضع التطهير والصيانة',
@@ -153,10 +151,10 @@ const recordCycleSale = asyncHandler(async (req, res, next) => {
   // ==========================================
   if (sale_category === 'EGGS') {
     try {
-      await notificationService.sendAppNotification({
+      await notificationController.sendAppNotification({
         title: '🥚 مبيعات بيض جديدة',
         message: `قام المشرف ${req.user.name} بتسجيل مبيعات بيض (كمية: ${quantity} طبق/كرتونة).`,
-        type: 'EGG_SALE', // النوع الذي أضفناه للموديل سابقاً
+        type: 'EGG_SALE', 
         target_role: 'OWNER',
         organization_id: req.user.organization_id,
         link: `/owner/sales`,

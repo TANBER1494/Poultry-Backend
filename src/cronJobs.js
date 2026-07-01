@@ -2,8 +2,8 @@ const cron = require('node-cron');
 const Farm = require('./models/Farm');
 const Notification = require('./models/Notification');
 const socket = require('./models/socket');
-const Worker = require('./models/Worker');       // 🛡️ تم الإضافة
-const WorkerLog = require('./models/WorkerLog'); // 🛡️ تم الإضافة
+const Worker = require('./models/Worker');      
+const WorkerLog = require('./models/WorkerLog'); 
 
 const startCronJobs = () => {
   
