@@ -61,7 +61,7 @@ class DailyLogService {
     session.startTransaction();
 
     try {
-      // 🛡️ الترقية المعمارية الكبرى: جلب الدورة هنا ليصبح المتغير متاحاً لكل العمليات داخل الـ try
+      //  جلب الدورة للتحقق منها وتحديث إحصائياتها
       const cycle = await Cycle.findOne({
         _id: cycle_id,
         organization_id: orgId,
@@ -76,7 +76,7 @@ class DailyLogService {
         throw new AppError('عدد النافق يتجاوز الطيور الحية المتبقية في العنبر', 400);
       }
 
-      // 3: تحديث الرصيد الحي والمصروفات والنافق في الذاكرة
+      // 3: تحديث الرصيد الحي والمصروفات والنافق في الدورة
       if (totalDeadBirds > 0) {
         cycle.current_bird_count -= totalDeadBirds;
         cycle.total_dead_birds = (cycle.total_dead_birds || 0) + totalDeadBirds;
@@ -87,7 +87,6 @@ class DailyLogService {
 
       // 4: التعامل مع عهدة العلف وتسجيل الاستهلاك
       if (feedItemMeta && quantityToDeduct > 0) {
-        // البحث عن العلف داخل عهدة الدورة
         const custodyIndex = cycle.feed_custody.findIndex(
           (c) => c.item_id.toString() === feed_item_id.toString()
         );
@@ -101,23 +100,15 @@ class DailyLogService {
           );
         }
 
-        // الخصم من عهدة العنبر
         cycle.feed_custody[custodyIndex].quantity -= quantityToDeduct;
 
-        // تسجيل حركة استهلاك من العهدة
         await InventoryMovement.create(
           [
             {
               local_id: `${local_id}_FEED_OUT`,
-              organization_id: orgId,
-              farm_id: farmId,
-              item_id: feed_item_id,
-              cycle_id: cycle_id,
-              performed_by: userId,
-              movement_type: 'CONSUMPTION',
-              quantity: quantityToDeduct,
-              unit_cost_at_time: feedItemMeta.average_unit_cost,
-              total_value: feedExpense,
+              organization_id: orgId, farm_id: farmId, item_id: feed_item_id, cycle_id: cycle_id,
+              performed_by: userId, movement_type: 'CONSUMPTION', quantity: quantityToDeduct,
+              unit_cost_at_time: feedItemMeta.average_unit_cost, total_value: feedExpense,
               movement_date: normalizedLogDate,
               reference_doc: `استهلاك من عهدة العنبر (يومية عمر ${age_in_days} يوم)`,
             },
@@ -126,89 +117,73 @@ class DailyLogService {
         );
       }
 
-      // 5: حفظ الدورة بجميع التحديثات بضربة واحدة في قاعدة البيانات
+      // ==========================================
+      //  5: نظام التسوية الذكي لإنتاج البيض (Smart Reconciliation)
+      // ==========================================
+      const physicalEggTrays = Number(egg_trays_produced) || 0; // ما يراه المشرف بعينه
+      const pendingPulls = cycle.pending_egg_pulls || 0; // السلف المسحوبة صباحاً للفواتير
+      const totalEggTraysProduced = physicalEggTrays + pendingPulls; // الإجمالي الحقيقي للإنتاج
+
+      // تصفير السلفة من الدورة لأننا سنسويها الآن
+      if (pendingPulls > 0) {
+        cycle.pending_egg_pulls = 0;
+      }
+
+      // حفظ الدورة بجميع التحديثات (نافق، علف، تصفير سلفة) بضربة واحدة
       await cycle.save({ session });
 
-      // 6: إدخال البيض المُنتج إلى المخزن آلياً (Auto-Provisioning)
-      const eggTrays = Number(egg_trays_produced) || 0;
-      if (eggTrays > 0) {
+      // 6: إدخال البيض المُنتج (الفعلي فقط) إلى المخزن
+      if (physicalEggTrays > 0) {
         let eggItem = await InventoryItem.findOne({
-          farm_id: farmId,
-          category: 'PRODUCT',
-          unit: 'TRAY',
+          farm_id: farmId, category: 'PRODUCT', unit: 'TRAY',
         }).session(session);
 
         if (!eggItem) {
-          const [newEggItem] = await InventoryItem.create(
-            [
-              {
-                organization_id: orgId,
-                farm_id: farmId,
-                name: 'بيض مائدة (إنتاج المزرعة)',
-                category: 'PRODUCT',
-                unit: 'TRAY',
-                stock_quantity: 0,
-                average_unit_cost: 0,
-              },
-            ],
-            { session }
-          );
+          const [newEggItem] = await InventoryItem.create([{
+            organization_id: orgId, farm_id: farmId, name: 'بيض مائدة (إنتاج المزرعة)',
+            category: 'PRODUCT', unit: 'TRAY', stock_quantity: 0, average_unit_cost: 0,
+          }], { session });
           eggItem = newEggItem;
         }
 
-        eggItem.stock_quantity += eggTrays;
+        eggItem.stock_quantity += physicalEggTrays;
         await eggItem.save({ session });
 
         await InventoryMovement.create(
-          [
-            {
-              local_id: `${local_id}_EGG_IN`,
-              organization_id: orgId,
-              farm_id: farmId,
-              item_id: eggItem._id,
-              cycle_id: cycle_id,
-              performed_by: userId,
-              movement_type: 'PRODUCTION',
-              quantity: eggTrays,
-              unit_cost_at_time: 0,
-              total_value: 0,
-              movement_date: normalizedLogDate,
-              reference_doc: `إنتاج يومية عنبر (${age_in_days} يوم)`,
-            },
-          ],
+          [{
+            local_id: `${local_id}_EGG_IN`,
+            organization_id: orgId, farm_id: farmId, item_id: eggItem._id, cycle_id: cycle_id,
+            performed_by: userId, movement_type: 'PRODUCTION', quantity: physicalEggTrays,
+            unit_cost_at_time: 0, total_value: 0, movement_date: normalizedLogDate,
+            reference_doc: `إنتاج يومية عنبر (${age_in_days} يوم) - توريد للمخزن`,
+          }],
           { session }
         );
       }
 
-      // 7: تسجيل اليومية نفسها
+      // تجهيز ملاحظة التسوية الأوتوماتيكية
+      let finalNotes = notes ? notes.trim() : '';
+      if (pendingPulls > 0) {
+        const pullNote = `⚠️ (تسوية آلية): تم إضافة ${pendingPulls} طبق للإنتاج، كانت قد سُحبت مسبقاً لمبيعات اليوم.`;
+        finalNotes = finalNotes ? `${finalNotes} | ${pullNote}` : pullNote;
+      }
+
+      // 7: تسجيل اليومية بالإنتاج الإجمالي
       const [newLog] = await DailyLog.create(
-        [
-          {
-            local_id,
-            organization_id: orgId,
-            farm_id: farmId,
-            barn_id,
-            cycle_id,
-            recorded_by: userId,
-            log_date: normalizedLogDate,
-            age_in_days,
-            mortality_count: Number(mortality_count) || 0,
-            culled_count: Number(culled_count) || 0,
-            feed_consumed_bags: bagsCount,
-            feed_consumed_kg: kgCount,
+        [{
+            local_id, organization_id: orgId, farm_id: farmId, barn_id, cycle_id,
+            recorded_by: userId, log_date: normalizedLogDate, age_in_days,
+            mortality_count: Number(mortality_count) || 0, culled_count: Number(culled_count) || 0,
+            feed_consumed_bags: bagsCount, feed_consumed_kg: kgCount,
             water_consumed_liters: Number(water_consumed_liters) || 0,
-            egg_trays_produced: Number(egg_trays_produced) || 0,
+            
+            egg_trays_produced: totalEggTraysProduced, 
             loose_eggs_produced: Number(loose_eggs_produced) || 0,
             broken_eggs: Number(broken_eggs) || 0,
-            average_weight_grams: average_weight_grams
-              ? Number(average_weight_grams)
-              : null,
-            medications_given: medications_given
-              ? medications_given.trim()
-              : '',
-            notes: notes ? notes.trim() : '',
-          },
-        ],
+            average_weight_grams: average_weight_grams ? Number(average_weight_grams) : null,
+            medications_given: medications_given ? medications_given.trim() : '',
+            notes: finalNotes, //
+        }],
         { session }
       );
 
@@ -217,10 +192,7 @@ class DailyLogService {
     } catch (error) {
       await session.abortTransaction();
       if (error.code === 11000) {
-        throw new AppError(
-          'تم تسجيل يومية لهذه الدورة في هذا التاريخ مسبقاً',
-          400
-        );
+        throw new AppError('تم تسجيل يومية لهذه الدورة في هذا التاريخ مسبقاً', 400);
       }
       throw error;
     } finally {

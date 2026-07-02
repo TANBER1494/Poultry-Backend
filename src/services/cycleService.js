@@ -128,19 +128,12 @@ class CycleService {
       paid_amount,
       transaction_date,
       notes,
-      representative_name,
+      advanced_pulls, //  المصفوفة الجديدة: [{ cycle_id: '...', quantity: 10 }]
     } = saleData;
 
-    //  تطبيق القواعد الصارمة للصلاحيات والحوكمة
     if (userRole === 'SUPERVISOR' && sale_category === 'BIRDS') {
       throw new AppError(
-        'إجراء أمني: صلاحيات المشرف تقتصر على بيع البيض والسباخ فقط. تصفية وبيع القطيع من صلاحيات المالك الحصرية.',
-        403
-      );
-    }
-    if (userRole === 'OWNER' && sale_category === 'EGGS') {
-      throw new AppError(
-        'إجراء تنظيمي: بيع البيض هو عملية يومية تتم من خلال شاشة المشرفين الخاصة بالعنابر البياضة.',
+        'إجراء أمني: تصفية وبيع القطيع من صلاحيات المالك الحصرية.',
         403
       );
     }
@@ -152,7 +145,6 @@ class CycleService {
     let totalInvoiceAmount = 0;
     let itemName = '';
 
-    // تحديد نوع المبيع وقيمته
     if (sale_category === 'BIRDS') {
       const numericWeight = Number(total_weight_kg);
       if (!numericWeight)
@@ -183,77 +175,117 @@ class CycleService {
       }).lean();
       if (!merchant) throw new AppError('الشركة أو التاجر غير موجود', 404);
 
-      // بناء استعلام التحديث بناءً على نوع المبيع
-      let matchQuery = {
+      // 1. جلب الدورة الأساسية (للطيور والسباخ) أو الدورة الافتراضية
+      const primaryCycle = await Cycle.findOne({
         _id: cycleId,
         organization_id: orgId,
         status: 'ACTIVE',
-      };
-      let incLogic = { total_revenue: totalInvoiceAmount };
+      }).session(session);
+      if (!primaryCycle) throw new AppError('الدورة المحددة غير نشطة', 400);
 
-      if (sale_category === 'BIRDS') {
-        matchQuery.current_bird_count = { $gte: numericQty }; // التأكد من وجود رصيد كافي للطيور فقط
-        incLogic.current_bird_count = -numericQty;
-        incLogic.total_sold_birds = numericQty;
-      } else if (sale_category === 'EGGS') {
-        incLogic.total_sold_eggs = numericQty;
-      } else if (sale_category === 'MANURE') {
-        incLogic.total_sold_manure = numericQty;
-      }
-
-      const cycle = await Cycle.findOneAndUpdate(
-        matchQuery,
-        { $inc: incLogic },
-        { new: true, session }
-      );
-
-      if (!cycle) {
-        throw new AppError(
-          'الدورة مغلقة، أو أن الرصيد الحي من الطيور لا يكفي لهذه العملية',
-          400
-        );
-      }
-
+      // ===============================================
+      // 🚀 لوجيك مبيعات البيض (نظام السحب المتعدد المتقدم)
+      // ===============================================
       if (sale_category === 'EGGS') {
         const eggItem = await InventoryItem.findOne({
-          farm_id: cycle.farm_id,
+          farm_id: primaryCycle.farm_id,
           category: 'PRODUCT',
           unit: 'TRAY',
         }).session(session);
+        const currentStock = eggItem ? eggItem.stock_quantity : 0;
+        let stockToDeduct = numericQty;
 
-        if (!eggItem || eggItem.stock_quantity < numericQty) {
-          throw new AppError(
-            `رصيد البيض في المخزن لا يكفي. المتاح حالياً: ${eggItem ? eggItem.stock_quantity : 0} كرتونة/طبق`,
-            400
+        // التحقق من وجود عجز يستدعي السحب من العنابر
+        if (currentStock < numericQty) {
+          const deficit = numericQty - currentStock;
+          const pulls = advanced_pulls || [];
+          const totalPulled = pulls.reduce(
+            (sum, p) => sum + Number(p.quantity),
+            0
           );
+
+          if (totalPulled !== deficit) {
+            throw new AppError(
+              `عجز في المخزن! المطلوب ${numericQty} والمتاح ${currentStock}. يجب تحديد سحب (${deficit}) طبق من العنابر لتغطية العجز.`,
+              400
+            );
+          }
+
+          // تسجيل السلف على العنابر (Cycles) المحددة
+          for (const pull of pulls) {
+            const targetCycle = await Cycle.findOne({
+              _id: pull.cycle_id,
+              status: 'ACTIVE',
+            }).session(session);
+            if (!targetCycle)
+              throw new AppError(
+                'أحد العنابر المحددة للسحب مغلق أو غير موجود',
+                400
+              );
+
+            targetCycle.pending_egg_pulls += Number(pull.quantity);
+            await targetCycle.save({ session });
+          }
+
+          stockToDeduct = currentStock; // تفريغ المخزن بالكامل
         }
 
-        // خصم الكمية المباعة
-        eggItem.stock_quantity -= numericQty;
-        await eggItem.save({ session });
+        // خصم المتاح من المخزن الفعلي
+        if (eggItem && stockToDeduct > 0) {
+          eggItem.stock_quantity -= stockToDeduct;
+          await eggItem.save({ session });
+        }
 
-        // توثيق حركة خروج المبيعات
-        await InventoryMovement.create(
-          [
-            {
-              local_id: `${local_id}_EGG_SALE`,
-              organization_id: orgId,
-              farm_id: cycle.farm_id,
-              item_id: eggItem._id,
-              cycle_id: cycle._id,
-              performed_by: userId,
-              movement_type: 'SALE',
-              quantity: numericQty,
-              unit_cost_at_time: numericPrice,
-              total_value: numericQty * numericPrice,
-              movement_date: new Date(transaction_date),
-              reference_doc: `مبيعات للتاجر`,
-            },
-          ],
-          { session }
-        );
+        // زيادة إحصائيات المبيعات في الدورة الأساسية (لأغراض الحسابات)
+        primaryCycle.total_sold_eggs += numericQty;
+        primaryCycle.total_revenue += totalInvoiceAmount;
+        await primaryCycle.save({ session });
+
+        // توثيق حركة المخزن (بالكمية التي خرجت من المخزن الفعلي فقط)
+        if (stockToDeduct > 0) {
+          await InventoryMovement.create(
+            [
+              {
+                local_id: `${local_id}_EGG_SALE`,
+                organization_id: orgId,
+                farm_id: primaryCycle.farm_id,
+                item_id: eggItem._id,
+                cycle_id: primaryCycle._id,
+                performed_by: userId,
+                movement_type: 'SALE',
+                quantity: stockToDeduct,
+                unit_cost_at_time: numericPrice,
+                total_value: stockToDeduct * numericPrice,
+                movement_date: new Date(transaction_date),
+                reference_doc: `مبيعات للتاجر (تم تسليم ${stockToDeduct} من المخزن)`,
+              },
+            ],
+            { session }
+          );
+        }
+      }
+      // ===============================================
+      // لوجيك الطيور والسباخ (بقي كما هو لحماية النظام)
+      // ===============================================
+      else {
+        if (sale_category === 'BIRDS') {
+          if (primaryCycle.current_bird_count < numericQty)
+            throw new AppError(
+              'الرصيد الحي من الطيور لا يكفي لهذه العملية',
+              400
+            );
+          primaryCycle.current_bird_count -= numericQty;
+          primaryCycle.total_sold_birds += numericQty;
+        } else if (sale_category === 'MANURE') {
+          primaryCycle.total_sold_manure += numericQty;
+        }
+        primaryCycle.total_revenue += totalInvoiceAmount;
+        await primaryCycle.save({ session });
       }
 
+      // ===============================================
+      // إنشاء الفاتورة والمعاملة المالية
+      // ===============================================
       const remainingAmount = totalInvoiceAmount - numericPaid;
       const paymentStatus =
         numericPaid === 0
@@ -267,9 +299,9 @@ class CycleService {
           {
             local_id: `${local_id}_INV`,
             organization_id: orgId,
-            farm_id: cycle.farm_id,
+            farm_id: primaryCycle.farm_id,
             merchant_id,
-            cycle_id: cycle._id,
+            cycle_id: primaryCycle._id,
             created_by: userId,
             invoice_type: 'SALE',
             items: [
@@ -300,8 +332,8 @@ class CycleService {
             {
               local_id: `${local_id}_PAY`,
               organization_id: orgId,
-              farm_id: cycle.farm_id,
-              cycle_id: cycle._id,
+              farm_id: primaryCycle.farm_id,
+              cycle_id: primaryCycle._id,
               merchant_id,
               invoice_id: newInvoice._id,
               performed_by: userId,
@@ -317,7 +349,7 @@ class CycleService {
       }
 
       await session.commitTransaction();
-      return { invoice: newInvoice, cycle };
+      return { invoice: newInvoice, cycle: primaryCycle };
     } catch (error) {
       await session.abortTransaction();
       throw error;

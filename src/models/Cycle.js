@@ -69,7 +69,7 @@ const cycleSchema = new mongoose.Schema(
     // الترقية المعمارية: إضافة عدادات لمنتجات الدورة الأخرى
     total_sold_eggs: { type: Number, default: 0, min: 0 },
     total_sold_manure: { type: Number, default: 0, min: 0 },
-
+    pending_egg_pulls: { type: Number, default: 0, min: 0 },
     total_expenses: { type: Number, default: 0 },
     total_revenue: { type: Number, default: 0 },
     net_profit: { type: Number, default: 0 },
