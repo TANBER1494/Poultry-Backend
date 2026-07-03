@@ -83,7 +83,7 @@ const updateBarn = asyncHandler(async (req, res, next) => {
 });
 
 /**
- * @desc    Archive a barn (Soft Delete)
+ * @desc    Delete a barn (Hard Delete if no cycles exist)
  * @route   DELETE /api/barns/:id
  * @access  Private
  */
@@ -91,22 +91,33 @@ const deleteBarn = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
   const orgId = req.user.organization_id;
   
+  // 1. البحث عن العنبر
   const barn = await Barn.findOne({ _id: id, organization_id: orgId, deleted_at: null });
   if (!barn) {
     return next(new AppError('العنبر غير موجود أو لا تملك صلاحية حذفه', 404));
   }
 
+  // 2. التحقق مما إذا كان العنبر يحتوي على دورات سابقة أم لا
   const hasCycles = await Cycle.exists({ barn_id: id });
+
   if (hasCycles) {
-     return next(new AppError('إجراء مرفوض: لا يمكن حذف العنبر نهائياً لوجود دورات إنتاج وحسابات مرتبطة به. يرجى تغيير حالته إلى (مغلق/INACTIVE) بدلاً من الحذف.', 400));
+    //  مسار الأرشفة (Soft Delete): يوجد تاريخ مالي وعمليات مسجلة
+    barn.deleted_at = new Date();
+    barn.status = 'INACTIVE';
+    // تحرير الاسم: إضافة "مؤرشف" وطابع زمني لفك القيد الفريد والسماح بإنشاء عنبر بنفس الاسم
+    barn.name = `${barn.name}_مؤرشف_${Date.now()}`;
+    await barn.save();
+
+    return res.status(200).json({ 
+      message: 'تم أرشفة العنبر بنجاح للحفاظ على الفواتير والتقارير القديمة. (تم تحرير الاسم لتتمكن من استخدامه لعنبر جديد)' 
+    });
+  } else {
+    //  مسار الحذف النهائي (Hard Delete): العنبر جديد ولم يستخدم قط
+    await Barn.deleteOne({ _id: id });
+    return res.status(200).json({ 
+      message: 'تم حذف العنبر نهائياً لعدم وجود أي دورات أو حسابات مرتبطة به.' 
+    });
   }
-
-  // الترقية المعمارية: تطبيق الحذف الناعم لمنع تدمير السجلات التاريخية وفك القيد الفريد
-  barn.deleted_at = new Date();
-  barn.status = 'INACTIVE';
-  await barn.save();
-
-  res.status(200).json({ message: 'تم أرشفة العنبر من النظام بشكل آمن' });
 });
 
 module.exports = { 
