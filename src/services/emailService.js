@@ -2,14 +2,17 @@ const nodemailer = require('nodemailer');
 
 class EmailService {
   constructor() {
-    //  تهيئة الاتصال الآمن مع سيرفرات جوجل
+    //  تهيئة الاتصال مع سيرفرات جوجل (تم التعديل لتخطي حظر السيرفرات السحابية)
     this.transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 465, // استخدام البورت الآمن والمشفر
-      secure: true, // تفعيل الـ SSL/TLS
+      port: 587,
+      secure: false, 
       auth: {
         user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS, // هنا نضع الـ App Password وليس الباسوورد العادية
+        pass: process.env.EMAIL_PASS,
+      },
+      tls: {
+        rejectUnauthorized: false, 
       },
     });
   }
@@ -23,13 +26,16 @@ class EmailService {
 
     if (options.type === 'activation') {
       subject = 'كود تفعيل حسابك ';
-      actionText = 'مرحباً بك في نظام إدارة مزارع الدواجن. لتفعيل حسابك وإكمال عملية التسجيل، يرجى استخدام كود التحقق الآمن أدناه:';
+      actionText =
+        'مرحباً بك في نظام إدارة مزارع الدواجن. لتفعيل حسابك وإكمال عملية التسجيل، يرجى استخدام كود التحقق الآمن أدناه:';
     } else if (options.type === 'reset_password') {
       subject = 'كود استعادة كلمة المرور ';
-      actionText = 'لقد تلقينا طلباً لاستعادة كلمة المرور الخاصة بحسابك. يرجى استخدام كود التحقق الآمن أدناه:';
+      actionText =
+        'لقد تلقينا طلباً لاستعادة كلمة المرور الخاصة بحسابك. يرجى استخدام كود التحقق الآمن أدناه:';
     } else {
       subject = 'كود التحقق الخاص بك ';
-      actionText = 'يرجى استخدام كود التحقق الآمن أدناه لإكمال الإجراء المطلوب:';
+      actionText =
+        'يرجى استخدام كود التحقق الآمن أدناه لإكمال الإجراء المطلوب:';
     }
 
     const htmlTemplate = `
@@ -88,7 +94,7 @@ class EmailService {
       console.log('✅ Email sent securely:', info.messageId);
       return info;
     } catch (err) {
-      console.error("❌ Nodemailer Exception:", err);
+      console.error('❌ Nodemailer Exception:', err);
       throw new Error('تعذر الإرسال، يرجى المحاولة لاحقاً');
     }
   }
