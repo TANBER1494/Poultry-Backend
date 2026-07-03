@@ -85,20 +85,27 @@ class MerchantService {
 
     const [invoices, transactions] = await Promise.all([
       Invoice.find({ merchant_id: merchantId, organization_id: orgId })
-        .select('invoice_type total_amount paid_amount remaining_amount invoice_date payment_status')
         .sort({ invoice_date: -1 })
         .lean(),
       
       Transaction.find({ merchant_id: merchantId, organization_id: orgId })
-        .select('type amount transaction_date category reference_doc invoice_id')
         .sort({ transaction_date: -1 })
         .lean()
     ]);
 
     let currentBalance = merchant.opening_balance;
+    let totalPurchasesQty = 0; 
+
     invoices.forEach(inv => {
-      if (inv.invoice_type === 'PURCHASE') currentBalance -= inv.remaining_amount;
-      if (inv.invoice_type === 'SALE') currentBalance += inv.remaining_amount;
+      if (inv.invoice_type === 'PURCHASE') {
+        currentBalance -= inv.remaining_amount;
+      }
+      if (inv.invoice_type === 'SALE') {
+        currentBalance += inv.remaining_amount;
+        // حساب الكمية بأمان سواء كانت في الحقل المباشر أو داخل المصفوفة
+        const qty = inv.quantity || (inv.items && inv.items.length > 0 ? inv.items[0].quantity : 0);
+        totalPurchasesQty += Number(qty);
+      }
     });
 
     return {
@@ -110,6 +117,7 @@ class MerchantService {
         opening_balance: merchant.opening_balance,
         current_calculated_balance: currentBalance
       },
+      total_purchases_qty: totalPurchasesQty,
       invoices_history: invoices,
       transactions_history: transactions
     };
