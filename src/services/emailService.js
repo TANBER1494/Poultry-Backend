@@ -1,24 +1,13 @@
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 
 class EmailService {
   constructor() {
-    //  تهيئة الاتصال مع سيرفرات جوجل (تم التعديل لتخطي حظر السيرفرات السحابية)
-    this.transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, 
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-      tls: {
-        rejectUnauthorized: false, 
-      },
-    });
+    // إعداد مفتاح SendGrid
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
   }
 
   /**
-   * إرسال كود الـ OTP بديناميكية حسب نوع الإجراء
+   * إرسال كود الـ OTP بديناميكية باستخدام HTTP API لتخطي حظر السيرفرات
    */
   async sendOTP(options) {
     let subject = '';
@@ -26,33 +15,31 @@ class EmailService {
 
     if (options.type === 'activation') {
       subject = 'كود تفعيل حسابك ';
-      actionText =
-        'مرحباً بك في نظام إدارة مزارع الدواجن. لتفعيل حسابك وإكمال عملية التسجيل، يرجى استخدام كود التحقق الآمن أدناه:';
+      actionText = 'مرحباً بك في نظام إدارة مزارع الدواجن. لتفعيل حسابك وإكمال عملية التسجيل، يرجى استخدام كود التحقق الآمن أدناه:';
     } else if (options.type === 'reset_password') {
       subject = 'كود استعادة كلمة المرور ';
-      actionText =
-        'لقد تلقينا طلباً لاستعادة كلمة المرور الخاصة بحسابك. يرجى استخدام كود التحقق الآمن أدناه:';
+      actionText = 'لقد تلقينا طلباً لاستعادة كلمة المرور الخاصة بحسابك. يرجى استخدام كود التحقق الآمن أدناه:';
     } else {
       subject = 'كود التحقق الخاص بك ';
-      actionText =
-        'يرجى استخدام كود التحقق الآمن أدناه لإكمال الإجراء المطلوب:';
+      actionText = 'يرجى استخدام كود التحقق التالي:';
     }
 
     const htmlTemplate = `
       <!DOCTYPE html>
-      <html lang="ar" dir="rtl">
+      <html dir="rtl" lang="ar">
       <head>
         <meta charset="utf-8">
         <style>
-          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; margin: 0; padding: 0; direction: rtl; }
-          .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
-          .header { background-color: #16a34a; padding: 25px; text-align: center; } 
-          .header h1 { color: #ffffff; margin: 0; font-size: 24px; font-weight: 600; letter-spacing: 0.5px; }
-          .content { padding: 40px 30px; color: #1e293b; line-height: 1.7; text-align: right; }
-          .message-box { background-color: #f1f5f9; padding: 25px; border-radius: 8px; text-align: center; margin: 30px 0; border: 2px dashed #cbd5e1; }
-          .code { font-size: 36px; font-weight: 800; color: #16a34a; letter-spacing: 8px; margin: 0; }
-          .footer { background-color: #f8fafc; padding: 20px; text-align: center; color: #64748b; font-size: 13px; border-top: 1px solid #e2e8f0; }
-          .warning { font-size: 14px; color: #64748b; background-color: #fffbeb; padding: 12px; border-right: 4px solid #f59e0b; border-radius: 4px; text-align: right; }
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; margin: 0; padding: 20px; color: #334155; }
+          .container { max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+          .header { background-color: #4f46e5; color: white; padding: 24px; text-align: center; }
+          .header h1 { margin: 0; font-size: 24px; font-weight: 700; }
+          .content { padding: 32px 24px; }
+          .message-box { background-color: #f1f5f9; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0; border: 1px dashed #cbd5e1; }
+          .code { font-size: 32px; font-weight: 900; color: #4f46e5; letter-spacing: 4px; }
+          .warning { font-size: 13px; color: #64748b; text-align: center; margin-top: 20px; }
+          .footer { background-color: #f8fafc; padding: 16px; text-align: center; border-top: 1px solid #e2e8f0; }
+          .footer p { margin: 4px 0; font-size: 12px; color: #94a3b8; }
         </style>
       </head>
       <body>
@@ -81,20 +68,25 @@ class EmailService {
       </html>
     `;
 
-    try {
-      const mailOptions = {
-        from: `"نظام إدارة المزارع" <${process.env.EMAIL_USER}>`, // اسم احترافي للمرسل
-        to: options.email,
-        subject: subject,
-        text: `${actionText} الكود هو: ${options.otp}`,
-        html: htmlTemplate,
-      };
+    const msg = {
+      to: options.email,
+      from: {
+        email: process.env.EMAIL_USER,
+        name: 'نظام إدارة المزارع'
+      },
+      subject: subject,
+      text: `${actionText} الكود هو: ${options.otp}`,
+      html: htmlTemplate,
+    };
 
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('✅ Email sent securely:', info.messageId);
-      return info;
-    } catch (err) {
-      console.error('❌ Nodemailer Exception:', err);
+    try {
+      await sgMail.send(msg);
+      console.log(`✅ تم إرسال كود الـ OTP بنجاح عبر SendGrid إلى: ${options.email}`);
+    } catch (error) {
+      console.error('❌ خطأ من سيرفر SendGrid:', error);
+      if (error.response) {
+        console.error(error.response.body);
+      }
       throw new Error('تعذر الإرسال، يرجى المحاولة لاحقاً');
     }
   }
