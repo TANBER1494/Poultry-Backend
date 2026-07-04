@@ -27,7 +27,7 @@ class FarmService {
     trialEndsAt.setDate(trialEndsAt.getDate() + 14);
 
     try {
-      // 🛡️ الترقية المعمارية: إزالة الاستعلام المسبق، والاعتماد على صد محرك البيانات للتكرار
+      //  الترقية المعمارية: إزالة الاستعلام المسبق، والاعتماد على صد محرك البيانات للتكرار
       const newFarm = await Farm.create({
         organization_id: orgId,
         name: name.trim(),

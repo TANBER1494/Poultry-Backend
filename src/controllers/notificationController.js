@@ -46,8 +46,8 @@ const sendAppNotification = async ({ title, message, type, target_role, target_u
 
     let room;
     if (target_role === 'SUPER_ADMIN') room = 'SUPER_ADMIN_ROOM';
-    else if (target_role === 'OWNER') room = organization_id.toString();
     else if (target_user_id) room = target_user_id.toString();
+    else if (organization_id) room = organization_id.toString(); // إرسال لغرفة المؤسسة ليقوم الفرونت بفلترتها
 
     if (room && socket.getIO()) {
       socket.getIO().to(room).emit('new_notification', newNotification);
@@ -55,20 +55,27 @@ const sendAppNotification = async ({ title, message, type, target_role, target_u
 
     let query = { status: 'ACTIVE', fcm_token: { $ne: null } };
     
-    if (target_role === 'SUPER_ADMIN') query.role = 'SUPER_ADMIN';
-    else if (target_role === 'OWNER') { query.role = 'OWNER'; query.organization_id = organization_id; }
-    else if (target_user_id) query._id = target_user_id;
+    if (target_role === 'SUPER_ADMIN') {
+      query.role = 'SUPER_ADMIN';
+    } else if (target_role === 'OWNER') { 
+      query.role = 'OWNER'; 
+      query.organization_id = organization_id; 
+    } else if (target_role === 'SUPERVISOR') {
+      query.role = 'SUPERVISOR';
+      query.organization_id = organization_id;
+      if (target_user_id) query._id = target_user_id; // إذا كان لمشرف محدد
+    } else if (target_user_id) {
+      query._id = target_user_id;
+    }
 
     const targetUsers = await User.find(query).select('fcm_token').lean();
     const tokens = targetUsers.map(user => user.fcm_token).filter(Boolean);
 
     if (tokens.length > 0) {
       
-      //  1. نظام تخصيص الأيقونات (اللوجو) بناءً على النوع
       const BASE_URL = 'https://poultry-frontend-eta.vercel.app';
       let notificationIcon = `${BASE_URL}/pwa-192x192.png`;
 
-      // يمكنك مستقبلاً رفع صور لكل نوع في مجلد public في الفرونت إند واستدعائها هنا
       switch (type) {
         case 'EGG_SALE':
           notificationIcon = `${BASE_URL}/egg-icon.png`; 
@@ -81,7 +88,6 @@ const sendAppNotification = async ({ title, message, type, target_role, target_u
           break;
       }
 
-      //  2. بناء الـ Payload بمعايير Web Push الرسمية
       const payload = {
         notification: {
           title: title,
@@ -91,11 +97,8 @@ const sendAppNotification = async ({ title, message, type, target_role, target_u
           url: String(link || '/'),
           click_action: String(link || '/')
         },
-        // هنا يكمن السحر الذي سيجبر الأندرويد على الاستجابة
         webpush: {
-          fcm_options: {
-            link: String(link || '/') 
-          },
+          fcm_options: { link: String(link || '/') },
           notification: {
             icon: notificationIcon, 
             badge: `${BASE_URL}/badge.png`,
