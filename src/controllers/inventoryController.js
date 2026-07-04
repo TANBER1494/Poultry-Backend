@@ -83,49 +83,32 @@ const getInventoryItems = asyncHandler(async (req, res, next) => {
  */
 const recordInventoryMovement = asyncHandler(async (req, res, next) => {
   const {
-    local_id,
-    farm_id,
-    item_id,
-    movement_type,
-    quantity,
-    unit_cost_at_time,
-    movement_date,
+    local_id, farm_id, item_id, movement_type, quantity, unit_cost_at_time, movement_date,
   } = req.body;
 
-  if (
-    !local_id ||
-    !farm_id ||
-    !item_id ||
-    !movement_type ||
-    !quantity ||
-    !unit_cost_at_time ||
-    !movement_date
-  ) {
-    return next(
-      new AppError('البيانات الأساسية للحركة المخزنية غير مكتملة', 400)
-    );
+  if (!local_id || !farm_id || !item_id || !movement_type || !quantity || !unit_cost_at_time || !movement_date) {
+    return next(new AppError('البيانات الأساسية للحركة المخزنية غير مكتملة', 400));
   }
 
-  const result = await inventoryService.recordMovement(
-    req.body,
-    req.user._id,
-    req.user.organization_id
-  );
+  const result = await inventoryService.recordMovement(req.body, req.user._id, req.user.organization_id);
 
   if (result.isDuplicate) {
-    return res
-      .status(200)
-      .json({ message: 'الحركة مسجلة مسبقاً', movement: result.movement });
+    return res.status(200).json({ message: 'الحركة مسجلة مسبقاً', movement: result.movement });
   }
 
-  // 2️ إطلاق إشعار للمشرف إذا كان التوريد معلقاً
   if (req.body.status === 'PENDING' && req.user.role === 'OWNER') {
     try {
-      //  تم الاستبدال
+      // 1. جلب اسم وتصنيف الصنف لتخصيص الرسالة
+      const item = await InventoryItem.findById(item_id).lean();
+      const itemName = item ? item.name : 'مستلزمات';
+      const isFeed = item && item.category === 'FEED';
+      
+      const notifTitle = isFeed ? '🚚 توريد علف في الطريق' : '📦 توريد بضاعة/أدوية في الطريق';
+
       await notificationController.sendAppNotification({
-        title: '🚚 توريد علف/أصناف في الطريق',
-        message: `تم إرسال توريد جديد إلى المزرعة بكمية ${req.body.quantity}. يرجى تأكيد الاستلام فور وصوله.`,
-        type: 'FEED_DELIVERY',
+        title: notifTitle,
+        message: `تم إرسال توريد جديد (${itemName}) بكمية ${quantity}. يرجى تأكيد الاستلام فور وصوله.`,
+        type: 'FEED_DELIVERY', // نتركها هكذا لكي يظهر أيقونة الشاحنة في الفرونت إند
         target_role: 'SUPERVISOR',
         organization_id: req.user.organization_id,
         link: '/supervisor/inventory',
@@ -136,8 +119,7 @@ const recordInventoryMovement = asyncHandler(async (req, res, next) => {
   }
 
   res.status(201).json({
-    message:
-      req.body.status === 'PENDING'
+    message: req.body.status === 'PENDING'
         ? 'تم تسجيل التوريد وبانتظار تأكيد المشرف'
         : 'تم تسجيل الحركة وتحديث الأرصدة بنجاح',
     movement: result.movement,
