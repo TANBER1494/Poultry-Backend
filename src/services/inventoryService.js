@@ -21,7 +21,7 @@ class InventoryService {
     const numericQuantity = Number(quantity);
     const numericCost = Number(unit_cost_at_time);
     const totalValue = numericQuantity * numericCost;
-    const movementStatus = status || 'COMPLETED'; // 🚀 دعم حالة الشحنات (في الطريق)
+    const movementStatus = status || 'COMPLETED';
 
     const session = await mongoose.startSession();
     session.startTransaction();
@@ -33,7 +33,6 @@ class InventoryService {
       let currentCost = item.average_unit_cost || 0;
       let currentStock = item.stock_quantity || 0;
 
-      // 🚀 التعديل الجوهري: إضافة الكمية للمخزن تتم *فقط* إذا كانت الحالة COMPLETED (تم الاستلام)
       if (movementStatus === 'COMPLETED') {
         if (['TRANSFER_IN', 'PURCHASE', 'PRODUCTION', 'RETURN'].includes(movement_type)) {
           const oldTotalValue = currentStock * currentCost;
