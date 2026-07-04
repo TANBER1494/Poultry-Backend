@@ -157,7 +157,7 @@ const recordCycleSale = asyncHandler(async (req, res, next) => {
         type: 'EGG_SALE',
         target_role: 'OWNER',
         organization_id: req.user.organization_id,
-        link: `/owner/sales`,
+        link: `/owner/merchants`,
       });
     } catch (err) {
       console.error('فشل إرسال إشعار مبيعات البيض:', err.message);
