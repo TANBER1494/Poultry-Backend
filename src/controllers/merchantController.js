@@ -2,13 +2,12 @@ const merchantService = require('../services/merchantService');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
+
 const addMerchant = asyncHandler(async (req, res, next) => {
   const { farm_id, company_name, merchant_type } = req.body;
-
   if (!farm_id || !company_name || !merchant_type) {
     return next(new AppError('البيانات الأساسية (المزرعة، اسم الشركة، نوع النشاط) مطلوبة', 400));
   }
-
   const newMerchant = await merchantService.createMerchant(req.body, req.user.organization_id);
   res.status(201).json({ message: 'تم تسجيل بيانات الشركة بنجاح', merchant: newMerchant });
 });
@@ -23,11 +22,9 @@ const updateMerchant = asyncHandler(async (req, res, next) => {
   res.status(200).json({ message: 'تم تحديث بيانات الشركة بنجاح', merchant });
 });
 
-//  الكنترولرز الجديدة لإدارة المناديب
 const addRepresentative = asyncHandler(async (req, res, next) => {
   const { name } = req.body;
   if (!name) return next(new AppError('اسم المندوب مطلوب', 400));
-
   const merchant = await merchantService.addRepresentative(req.params.id, req.user.organization_id, req.body);
   res.status(200).json({ message: 'تمت إضافة المندوب للشركة بنجاح', merchant });
 });
@@ -47,6 +44,15 @@ const deleteMerchant = asyncHandler(async (req, res, next) => {
   res.status(200).json({ message: 'تم حذف الشركة من النظام بشكل آمن' });
 });
 
+const recordPayment = asyncHandler(async (req, res, next) => {
+  const { amount, type } = req.body;
+  if (!amount || !type) {
+    return next(new AppError('المبلغ ونوع الدفعة (صرف/قبض) مطلوبان', 400));
+  }
+  const result = await merchantService.recordPayment(req.params.id, req.user.organization_id, req.body, req.user._id);
+  res.status(201).json({ message: 'تم تسجيل الدفعة النقدية بنجاح وخصمها من المديونية', transaction: result.transaction });
+});
+
 module.exports = {
   addMerchant,
   getMerchants,
@@ -54,5 +60,6 @@ module.exports = {
   addRepresentative,
   removeRepresentative,
   getMerchantStatement,
-  deleteMerchant
+  deleteMerchant,
+  recordPayment 
 };

@@ -3,6 +3,7 @@ const Farm = require('../models/Farm');
 const Invoice = require('../models/Invoice');
 const Transaction = require('../models/Transaction');
 const AppError = require('../utils/AppError');
+const transactionService = require('./transactionService'); // 🚀 استدعاء خدمة الخزينة لتسجيل الدفعات
 
 class MerchantService {
   async createMerchant(data, orgId) {
@@ -56,12 +57,10 @@ class MerchantService {
     }
   }
 
-  //  دوال جديدة لإدارة المناديب المنفصلين
   async addRepresentative(merchantId, orgId, repData) {
     const merchant = await Merchant.findOne({ _id: merchantId, organization_id: orgId });
     if (!merchant) throw new AppError('الشركة غير موجودة', 404);
     
-    // إذا كان هذا أول مندوب يتم إضافته، نجعله المندوب الأساسي
     if (merchant.representatives.length === 0) repData.is_primary = true;
 
     merchant.representatives.push(repData);
@@ -73,10 +72,34 @@ class MerchantService {
     const merchant = await Merchant.findOne({ _id: merchantId, organization_id: orgId });
     if (!merchant) throw new AppError('الشركة غير موجودة', 404);
 
-    // سحب (Pull) المندوب من المصفوفة بناءً على الـ ID الخاص به
     merchant.representatives.id(repId).deleteOne();
     await merchant.save();
     return merchant;
+  }
+
+  async recordPayment(merchantId, orgId, paymentData, userId) {
+    const merchant = await Merchant.findOne({ _id: merchantId, organization_id: orgId });
+    if (!merchant) throw new AppError('الشركة غير موجودة', 404);
+
+    const { amount, type, transaction_date, notes, rep_name } = paymentData;
+
+    let defaultNotes = type === 'IN' 
+      ? `تسديد دفعة نقدية من حساب (${merchant.company_name})` 
+      : `صرف دفعة نقدية لحساب (${merchant.company_name})`;
+    
+    if (rep_name) defaultNotes += ` - المندوب: ${rep_name}`;
+
+    // توجيه العملية لخدمة الخزينة لتسجيلها بشكل ذري آمن
+    return await transactionService.recordTransaction({
+        local_id: `PAY_${Date.now()}`,
+        farm_id: merchant.farm_id,
+        type: type, // 'IN' قبض من التاجر, 'OUT' صرف للتاجر
+        category: 'MERCHANT_PAYMENT',
+        amount: amount,
+        transaction_date: transaction_date || new Date(),
+        merchant_id: merchantId,
+        notes: notes || defaultNotes,
+    }, orgId, userId);
   }
 
   async getMerchantStatement(merchantId, orgId) {
@@ -96,15 +119,22 @@ class MerchantService {
     let currentBalance = merchant.opening_balance;
     let totalPurchasesQty = 0; 
 
+    // 1. حساب المديونية بناءً على الفواتير
     invoices.forEach(inv => {
       if (inv.invoice_type === 'PURCHASE') {
         currentBalance -= inv.remaining_amount;
       }
       if (inv.invoice_type === 'SALE') {
         currentBalance += inv.remaining_amount;
-        // حساب الكمية بأمان سواء كانت في الحقل المباشر أو داخل المصفوفة
         const qty = inv.quantity || (inv.items && inv.items.length > 0 ? inv.items[0].quantity : 0);
         totalPurchasesQty += Number(qty);
+      }
+    });
+
+    transactions.forEach(tx => {
+      if (!tx.invoice_id) { // سداد عام للحساب
+        if (tx.type === 'IN') currentBalance -= tx.amount; // التاجر دفع لنا (قلت مديونيته)
+        if (tx.type === 'OUT') currentBalance += tx.amount; // نحن دفعنا للتاجر (زادت مديونيته)
       }
     });
 
