@@ -8,114 +8,91 @@ const AppError = require('../utils/AppError');
 class InventoryService {
   async recordMovement(data, userId, orgId) {
     const {
-      local_id,
-      farm_id,
-      item_id,
-      movement_type,
-      quantity,
-      unit_cost_at_time,
-      movement_date,
-      cycle_id,
-      source_farm_id,
-      reference_doc,
-      status,
-    } = data; // استقبال الـ status
+      local_id, farm_id, item_id, movement_type, quantity,
+      unit_cost_at_time, movement_date, cycle_id, source_farm_id, reference_doc, status,
+    } = data;
 
-    const existingMovement = await InventoryMovement.findOne({
-      local_id,
-    }).lean();
-    if (existingMovement)
-      return { isDuplicate: true, movement: existingMovement };
+    const existingMovement = await InventoryMovement.findOne({ local_id }).lean();
+    if (existingMovement) return { isDuplicate: true, movement: existingMovement };
 
-    const farm = await Farm.findOne({
-      _id: farm_id,
-      organization_id: orgId,
-    }).lean();
+    const farm = await Farm.findOne({ _id: farm_id, organization_id: orgId }).lean();
     if (!farm) throw new AppError('المزرعة غير موجودة', 403);
 
     const numericQuantity = Number(quantity);
     const numericCost = Number(unit_cost_at_time);
     const totalValue = numericQuantity * numericCost;
-    const movementStatus = status || 'COMPLETED'; // تحديد الحالة
+    const movementStatus = status || 'COMPLETED'; // 🚀 دعم حالة الشحنات (في الطريق)
 
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
-      const item = await InventoryItem.findOne({
-        _id: item_id,
-        farm_id,
-        organization_id: orgId,
-      }).session(session);
+      const item = await InventoryItem.findOne({ _id: item_id, organization_id: orgId }).session(session);
       if (!item) throw new AppError('الصنف غير موجود', 404);
 
-      //  التعديل: نحدث الرصيد فقط إذا كانت الحركة مكتملة
-      if (movementStatus === 'COMPLETED') {
-        let newStockQuantity = item.stock_quantity;
-        if (
-          ['PURCHASE', 'TRANSFER_IN', 'PRODUCTION', 'RETURN'].includes(
-            movement_type
-          )
-        ) {
-          newStockQuantity += numericQuantity;
-          const currentTotalValue =
-            item.stock_quantity * item.average_unit_cost;
-          item.average_unit_cost =
-            newStockQuantity > 0
-              ? (currentTotalValue + totalValue) / newStockQuantity
-              : 0;
-        } else if (['CONSUMPTION', 'ADJUSTMENT'].includes(movement_type)) {
-          if (item.stock_quantity < numericQuantity)
-            throw new AppError('الرصيد لا يكفي', 400);
-          newStockQuantity -= numericQuantity;
-        }
-        item.stock_quantity = newStockQuantity;
-        await item.save({ session });
+      let currentCost = item.average_unit_cost || 0;
+      let currentStock = item.stock_quantity || 0;
 
-        if (movement_type === 'CONSUMPTION' && cycle_id) {
-          await Cycle.findOneAndUpdate(
-            {
-              _id: cycle_id,
-              farm_id,
-              organization_id: orgId,
-              status: 'ACTIVE',
-            },
-            { $inc: { total_expenses: totalValue } },
-            { new: true, session }
-          );
+      // 🚀 التعديل الجوهري: إضافة الكمية للمخزن تتم *فقط* إذا كانت الحالة COMPLETED (تم الاستلام)
+      if (movementStatus === 'COMPLETED') {
+        if (['TRANSFER_IN', 'PURCHASE', 'PRODUCTION', 'RETURN'].includes(movement_type)) {
+          const oldTotalValue = currentStock * currentCost;
+          const newTotalValue = oldTotalValue + totalValue;
+          currentStock += numericQuantity;
+          currentCost = currentStock > 0 ? newTotalValue / currentStock : 0;
+        } else if (['CONSUMPTION', 'SALE', 'BARN_TRANSFER'].includes(movement_type)) {
+          if (currentStock < numericQuantity) {
+            throw new AppError(`رصيد الصنف لا يكفي. المتاح: ${currentStock}`, 400);
+          }
+          currentStock -= numericQuantity;
+        } else if (movement_type === 'ADJUSTMENT') {
+          currentStock += numericQuantity;
+          if (currentStock < 0) throw new AppError('لا يمكن أن يكون الرصيد بالسالب', 400);
         }
+
+        item.stock_quantity = currentStock;
+        item.average_unit_cost = currentCost;
+        await item.save({ session });
       }
 
-      const [movement] = await InventoryMovement.create(
-        [
-          {
-            local_id,
-            organization_id: orgId,
-            farm_id,
-            item_id,
-            cycle_id: cycle_id || null,
-            performed_by: userId,
-            movement_type,
-            source_farm_id: source_farm_id || null,
-            quantity: numericQuantity,
-            unit_cost_at_time: numericCost,
-            total_value: totalValue,
-            movement_date: new Date(movement_date),
-            reference_doc,
-            status: movementStatus, // حفظ الحالة
-          },
-        ],
-        { session }
-      );
+      const movement = await InventoryMovement.create([{
+        local_id, organization_id: orgId, farm_id, item_id, cycle_id,
+        performed_by: userId, movement_type, source_farm_id,
+        quantity: numericQuantity, unit_cost_at_time: movementStatus === 'COMPLETED' ? currentCost : numericCost,
+        total_value: totalValue, movement_date, reference_doc, status: movementStatus
+      }], { session });
 
       await session.commitTransaction();
-      return { isDuplicate: false, movement };
+      session.endSession();
+      return { isDuplicate: false, movement: movement[0] };
     } catch (error) {
       await session.abortTransaction();
-      throw error;
-    } finally {
       session.endSession();
+      throw error;
     }
+  }
+
+  async produceFeed(data, orgId, userId) {
+    const { farm_id, item_id, quantity, unit_cost, cycle_id, direct_to_barn } = data;
+
+    // 1. تسجيل الإنتاج لدخوله المخزن وحساب التكلفة
+    const prodResult = await this.recordMovement({
+      local_id: `PROD_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      farm_id, item_id, movement_type: 'PRODUCTION', quantity,
+      unit_cost_at_time: unit_cost, movement_date: new Date(), status: 'COMPLETED',
+      reference_doc: 'إنتاج محلي (مدشة داخلية)'
+    }, userId, orgId);
+
+    // 2. السحب الفوري للعنبر إذا اختار المشرف ذلك (Atomic Operation)
+    if (direct_to_barn && cycle_id) {
+      await this.recordMovement({
+        local_id: `TRANS_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        farm_id, item_id, movement_type: 'BARN_TRANSFER', quantity,
+        unit_cost_at_time: unit_cost, movement_date: new Date(), cycle_id, status: 'COMPLETED',
+        reference_doc: 'استهلاك فوري من المدشة للعنبر'
+      }, userId, orgId);
+    }
+    return prodResult;
   }
 
   //  دالة جديدة كلياً: تأكيد استلام التوريد

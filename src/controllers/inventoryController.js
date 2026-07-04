@@ -255,6 +255,24 @@ const transferToBarn = asyncHandler(async (req, res, next) => {
   res.status(201).json({ message: 'تم صرف العهدة للعنبر بنجاح', movement });
 });
 
+
+
+/**
+ * @desc    Produce feed from local feed mill (with optional direct transfer)
+ * @route   POST /api/inventory/produce-feed
+ * @access  Private (Supervisor)
+ */
+const produceFeed = asyncHandler(async (req, res, next) => {
+  const { farm_id, item_id, quantity, unit_cost } = req.body;
+  
+  if (!farm_id || !item_id || !quantity || !unit_cost) {
+    return next(new AppError('بيانات الإنتاج غير مكتملة (المزرعة، الصنف، الكمية، التكلفة)', 400));
+  }
+
+  const result = await inventoryService.produceFeed(req.body, req.user.organization_id, req.user._id);
+  res.status(201).json({ message: req.body.direct_to_barn ? 'تم الإنتاج والتوزيع المباشر للعنبر بنجاح' : 'تم إنتاج العلف وإضافته للمخزن بنجاح', result });
+});
+
 module.exports = {
   addInventoryItem,
   getInventoryItems,
@@ -264,4 +282,5 @@ module.exports = {
   updateInventoryItem,
   deleteInventoryItem,
   transferToBarn,
+  produceFeed,
 };

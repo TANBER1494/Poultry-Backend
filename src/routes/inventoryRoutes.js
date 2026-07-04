@@ -9,7 +9,8 @@ const {
   updateInventoryItem,
   deleteInventoryItem,
   transferToBarn,
-  confirmInventoryMovement
+  confirmInventoryMovement,
+  produceFeed
 } = require('../controllers/inventoryController');
 
 const { protect } = require('../middlewares/authMiddleware');
@@ -30,5 +31,6 @@ router.put('/items/:id', authorize('OWNER'), checkSubscription, updateInventoryI
 router.delete('/items/:id', authorize('OWNER'), checkSubscription, deleteInventoryItem);
 router.post('/transfer-to-barn', authorize('OWNER', 'SUPERVISOR'), checkSubscription, transferToBarn);
 router.put('/movements/:id/confirm', authorize('OWNER', 'SUPERVISOR'), checkSubscription, confirmInventoryMovement);
+router.post('/produce-feed', authorize('OWNER', 'SUPERVISOR'), checkSubscription, produceFeed);
 
 module.exports = router;
