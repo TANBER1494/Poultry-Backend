@@ -39,33 +39,34 @@ class MerchantService {
     return await Merchant.find(query).sort({ company_name: 1 }).lean();
   }
 
-  async updateMerchant(merchantId, orgId, updates) {
-    const merchant = await Merchant.findOne({ _id: merchantId, organization_id: orgId });
-    if (!merchant) throw new AppError('الشركة غير موجودة أو لا تملك صلاحية تعديلها', 404);
+  async getMerchants(farmId, orgId, filters) {
+    const query = { farm_id: farmId, organization_id: orgId };
+    if (filters.merchant_type) query.merchant_type = filters.merchant_type;
+    if (filters.status) query.status = filters.status;
 
-    if (updates.company_name) merchant.company_name = updates.company_name.trim();
-    if (updates.company_phone !== undefined) merchant.company_phone = updates.company_phone.trim();
-    if (updates.address !== undefined) merchant.address = updates.address.trim();
-    if (updates.status) merchant.status = updates.status;
+    const merchants = await Merchant.find(query).sort({ company_name: 1 }).lean();
 
-    try {
-      await merchant.save();
-      return merchant;
-    } catch (error) {
-      if (error.code === 11000) throw new AppError('يوجد شركة أخرى مسجلة بنفس الاسم والنشاط', 400);
-      throw error;
+    for (let merchant of merchants) {
+      const [invoices, transactions] = await Promise.all([
+        Invoice.find({ merchant_id: merchant._id, organization_id: orgId }).select('invoice_type remaining_amount').lean(),
+        Transaction.find({ merchant_id: merchant._id, organization_id: orgId }).select('type amount invoice_id').lean()
+      ]);
+
+      let currentBalance = merchant.opening_balance || 0;
+      invoices.forEach(inv => {
+        if (inv.invoice_type === 'PURCHASE') currentBalance -= inv.remaining_amount;
+        if (inv.invoice_type === 'SALE') currentBalance += inv.remaining_amount;
+      });
+      transactions.forEach(tx => {
+        if (!tx.invoice_id) {
+          if (tx.type === 'IN') currentBalance -= tx.amount;
+          if (tx.type === 'OUT') currentBalance += tx.amount;
+        }
+      });
+      merchant.current_balance = currentBalance;
     }
-  }
 
-  async addRepresentative(merchantId, orgId, repData) {
-    const merchant = await Merchant.findOne({ _id: merchantId, organization_id: orgId });
-    if (!merchant) throw new AppError('الشركة غير موجودة', 404);
-    
-    if (merchant.representatives.length === 0) repData.is_primary = true;
-
-    merchant.representatives.push(repData);
-    await merchant.save();
-    return merchant;
+    return merchants;
   }
 
   async removeRepresentative(merchantId, repId, orgId) {
