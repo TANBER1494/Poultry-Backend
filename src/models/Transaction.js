@@ -43,11 +43,11 @@ const transactionSchema = new mongoose.Schema(
     performed_by: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true, 
+      required: true,
     },
     type: {
       type: String,
-      enum: ['IN', 'OUT'], 
+      enum: ['IN', 'OUT'],
       required: true,
     },
     category: {
@@ -67,6 +67,7 @@ const transactionSchema = new mongoose.Schema(
         'TRANSPORTATION',
         'OTHER_EXPENSE',
         'BIRD_SALE',
+        'MERCHANT_PAYMENT',
         'OTHER',
       ],
       required: true,
@@ -88,7 +89,7 @@ const transactionSchema = new mongoose.Schema(
     reference_doc: {
       type: String,
       trim: true,
-      default: '', 
+      default: '',
     },
   },
   { timestamps: true }

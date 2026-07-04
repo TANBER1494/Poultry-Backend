@@ -36,14 +36,6 @@ class MerchantService {
     if (filters.merchant_type) query.merchant_type = filters.merchant_type;
     if (filters.status) query.status = filters.status;
 
-    return await Merchant.find(query).sort({ company_name: 1 }).lean();
-  }
-
-  async getMerchants(farmId, orgId, filters) {
-    const query = { farm_id: farmId, organization_id: orgId };
-    if (filters.merchant_type) query.merchant_type = filters.merchant_type;
-    if (filters.status) query.status = filters.status;
-
     const merchants = await Merchant.find(query).sort({ company_name: 1 }).lean();
 
     for (let merchant of merchants) {
@@ -67,6 +59,18 @@ class MerchantService {
     }
 
     return merchants;
+  }
+
+
+  async addRepresentative(merchantId, orgId, repData) {
+    const merchant = await Merchant.findOne({ _id: merchantId, organization_id: orgId });
+    if (!merchant) throw new AppError('الشركة غير موجودة', 404);
+    
+    if (merchant.representatives.length === 0) repData.is_primary = true;
+
+    merchant.representatives.push(repData);
+    await merchant.save();
+    return merchant;
   }
 
   async removeRepresentative(merchantId, repId, orgId) {
