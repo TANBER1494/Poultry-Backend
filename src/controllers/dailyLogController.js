@@ -1,83 +1,54 @@
 const dailyLogService = require('../services/dailyLogService');
-const notificationController = require('../controllers/notificationController'); 
+const notificationController = require('../controllers/notificationController');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
 /**
- * @desc    Record a new daily production log
- * @route   POST /api/daily-logs
+ * @desc    Record bulk daily logs for multiple cycles
+ * @route   POST /api/daily-logs/bulk
  * @access  Private
  */
-const createDailyLog = asyncHandler(async (req, res, next) => {
-  const {
-    local_id,
-    barn_id,
-    cycle_id,
-    log_date,
-    age_in_days,
-    mortality_count,
-  } = req.body;
-  const farmId = req.user.farm_id || req.body.farm_id;
+const createBulkDailyLogs = asyncHandler(async (req, res, next) => {
+  const { logs } = req.body;
+  const farmId = req.user.farm_id || req.body.farm_id || req.query.farm_id;
   const orgId = req.user.organization_id;
 
-  if (!local_id || !barn_id || !cycle_id || !log_date || !age_in_days) {
-    return next(new AppError('البيانات الأساسية لليومية غير مكتملة', 400));
+  if (!logs || !Array.isArray(logs) || logs.length === 0) {
+    return next(new AppError('لا توجد بيانات يوميات لإرسالها', 400));
   }
 
   if (!farmId) {
     return next(new AppError('المزرعة غير محددة', 400));
   }
 
-  const result = await dailyLogService.createDailyLog(
-    req.body,
+  const result = await dailyLogService.createBulkDailyLogs(
+    logs,
     req.user._id,
     farmId,
     orgId
   );
 
-  if (result.isDuplicate) {
-    return res.status(200).json({
-      message: 'تم استلام هذه اليومية مسبقاً',
-      log: result.log,
-    });
-  }
-
-  // ==========================================
-  //  قسم إطلاق الإشعارات اللحظية (Sockets & FCM)
-  // ==========================================
+  // إشعارات الإدخال المجمع
   try {
-    // 1. إبلاغ المالك بنجاح تسجيل اليومية
-    await notificationController.sendAppNotification({
-      title: 'تم تسجيل يومية جديدة',
-      message: `قام المشرف ${req.user.name} بتسجيل يومية للعنبر لعمر ${age_in_days} يوم.`,
-      type: 'DAILY_LOG',
-      target_role: 'OWNER',
-      organization_id: orgId,
-      link: `/owner/farms/${farmId}/cycles/${cycle_id}`,
-    });
-
-    // 2. تحذير النافق 
-    const deadBirds = Number(mortality_count) || 0;
-    if (deadBirds > 10) {
-      // إشعار للمشرف (نفس المستخدم الحالي كتحذير بصري له)
+    if (result.logs.length > 0) {
       await notificationController.sendAppNotification({
-        title: '⚠️ تحذير: ارتفاع نسبة النافق',
-        message: `لقد قمت للتو بتسجيل نافق عالي (${deadBirds} طيور). يرجى اتخاذ الإجراءات الطبية اللازمة فوراً.`,
-        type: 'HIGH_MORTALITY',
-        target_role: 'SUPERVISOR',
-        target_user_id: req.user._id, 
+        title: '✅ تم تسجيل يوميات مجمعة',
+        message: `قام المشرف ${req.user.name} بتسجيل يوميات لعدد (${result.logs.length}) عنابر بنجاح.`,
+        type: 'DAILY_LOG',
+        target_role: 'OWNER',
         organization_id: orgId,
-        link: `/supervisor/daily-logs`,
+        link: `/owner/farms/${farmId}/cycles`,
       });
+    }
 
-      // إشعار طارئ للمالك ليكون على علم بالكارثة المحتملة
+    if (result.totalDeadAlertCount > 10) {
       await notificationController.sendAppNotification({
         title: '🚨 تنبيه طارئ: نافق غير طبيعي',
-        message: `عاجل: تم تسجيل عدد (${deadBirds}) نافق في دورة العنبر بواسطة المشرف ${req.user.name}.`,
+        message: `عاجل: إجمالي النافق المسجل في يوميات اليوم بلغ (${result.totalDeadAlertCount}) طيور بواسطة ${req.user.name}.`,
         type: 'HIGH_MORTALITY',
         target_role: 'OWNER',
         organization_id: orgId,
-        link: `/owner/farms/${farmId}/cycles/${cycle_id}`,
+        link: `/owner/farms/${farmId}`,
       });
     }
   } catch (notifErr) {
@@ -85,33 +56,26 @@ const createDailyLog = asyncHandler(async (req, res, next) => {
   }
 
   res.status(201).json({
-    message: 'تم تسجيل اليومية وتحديث المخازن وحسابات الدورة بنجاح',
-    log: result.log,
+    message: `تم تسجيل (${result.logs.length}) يومية وتحديث المخازن بنجاح`,
+    logs: result.logs,
   });
 });
 
-/**
- * @desc    Get all daily logs for a specific cycle
- * @route   GET /api/daily-logs/cycle/:cycle_id
- * @access  Private
- */
 const getCycleDailyLogs = asyncHandler(async (req, res, next) => {
   const { cycle_id } = req.params;
   const farmId = req.user.farm_id || req.query.farm_id;
   const orgId = req.user.organization_id;
 
-  if (!farmId) {
+  if (!farmId)
     return next(
       new AppError('يجب تحديد معرف المزرعة للتحقق من الصلاحيات', 400)
     );
-  }
 
   const logs = await dailyLogService.getLogsByCycle(cycle_id, farmId, orgId);
-
   res.status(200).json({ count: logs.length, logs });
 });
 
 module.exports = {
-  createDailyLog,
+  createBulkDailyLogs,
   getCycleDailyLogs,
 };
