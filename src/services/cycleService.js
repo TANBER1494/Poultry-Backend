@@ -357,6 +357,52 @@ class CycleService {
       session.endSession();
     }
   }
+
+  async getFarmFinancialSummary(farmId, orgId) {
+    // 1. تجميع كل التكاليف (Expenses) من كل العنابر والدورات في المزرعة
+    const cycleStats = await Cycle.aggregate([
+      { 
+        $match: { 
+          farm_id: new mongoose.Types.ObjectId(farmId), 
+          organization_id: new mongoose.Types.ObjectId(orgId) 
+        } 
+      },
+      { 
+        $group: { 
+          _id: null, 
+          total_expenses: { $sum: "$total_expenses" } 
+        } 
+      }
+    ]);
+    const totalExpenses = cycleStats[0]?.total_expenses || 0;
+
+    // 2. تجميع كل إيرادات المبيعات (Revenues) من فواتير البيض والسباخ والطيور
+    const invoiceStats = await Invoice.aggregate([
+      { 
+        $match: { 
+          farm_id: new mongoose.Types.ObjectId(farmId), 
+          organization_id: new mongoose.Types.ObjectId(orgId), 
+          invoice_type: 'SALE' 
+        } 
+      },
+      { 
+        $group: { 
+          _id: null, 
+          total_revenue: { $sum: "$total_amount" } 
+        } 
+      }
+    ]);
+    const totalRevenue = invoiceStats[0]?.total_revenue || 0;
+
+    // 3. حساب صافي الربح العام للمزرعة
+    return {
+      total_expenses: totalExpenses,
+      total_revenue: totalRevenue,
+      net_profit: totalRevenue - totalExpenses
+    };
+  }
 }
+
+
 
 module.exports = new CycleService();

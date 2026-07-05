@@ -174,10 +174,25 @@ const recordCycleSale = asyncHandler(async (req, res, next) => {
   });
 });
 
+
+const getFarmFinancialSummary = asyncHandler(async (req, res, next) => {
+  const { farm_id } = req.params;
+  const orgId = req.user.organization_id;
+
+  if (!farm_id) {
+    return next(new AppError('يجب تحديد معرف المزرعة', 400));
+  }
+
+  const summary = await cycleService.getFarmFinancialSummary(farm_id, orgId);
+
+  res.status(200).json(summary);
+});
+
 module.exports = {
   startCycle,
   getFarmCycles,
   getCycleDetails,
   closeCycle,
   recordCycleSale,
+  getFarmFinancialSummary,
 };

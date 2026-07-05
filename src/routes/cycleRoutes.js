@@ -19,6 +19,7 @@ router.use(protect);
 // مسارات التشغيل المالي والإداري (حكر على المالك + تتطلب اشتراك فعال)
 router.post('/', authorize('OWNER'), checkSubscription, startCycle);
 router.put('/:id/close', authorize('OWNER'), checkSubscription, closeCycle);
+router.get('/farm/:farm_id/financial-summary', authorize('OWNER'), getFarmFinancialSummary);
 router.post('/:id/sales', authorize('OWNER', 'SUPERVISOR'), checkSubscription, recordCycleSale);
 // مسارات القراءة والمتابعة (متاحة للمالك والمشرف)
 router.get('/farm/:farm_id', authorize('OWNER', 'SUPERVISOR'), getFarmCycles);
