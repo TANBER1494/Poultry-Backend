@@ -71,7 +71,7 @@ class InventoryService {
     }
   }
 
-async produceFeed(data, userId, orgId) { // لاحظ ترتيب userId و orgId
+async produceFeed(data, orgId, userId) {
     const { farm_id, item_id, quantity, unit_cost, cycle_id, direct_to_barn } = data;
 
     // 1. تسجيل الإنتاج لدخوله المخزن وحساب التكلفة
