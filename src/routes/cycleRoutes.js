@@ -6,7 +6,8 @@ const {
   getFarmCycles,
   getCycleDetails,
   closeCycle,
-  recordCycleSale
+  recordCycleSale,
+  getFarmFinancialSummary,
 } = require('../controllers/cycleController');
 
 const { protect } = require('../middlewares/authMiddleware');
