@@ -255,6 +255,21 @@ const produceFeed = asyncHandler(async (req, res, next) => {
   res.status(201).json({ message: req.body.direct_to_barn ? 'تم الإنتاج والتوزيع المباشر للعنبر بنجاح' : 'تم إنتاج العلف وإضافته للمخزن بنجاح', result });
 });
 
+
+/**
+ * @desc    Get pending inventory movements (Transit Inventory)
+ * @route   GET /api/inventory/farms/:farm_id/movements/pending
+ * @access  Private (Supervisor, Owner)
+ */
+const getPendingMovements = asyncHandler(async (req, res, next) => {
+  const { farm_id } = req.params;
+  const orgId = req.user.organization_id;
+
+  const movements = await inventoryService.getPendingMovements(farm_id, orgId);
+  
+  res.status(200).json({ count: movements.length, movements });
+});
+
 module.exports = {
   addInventoryItem,
   getInventoryItems,
@@ -265,4 +280,5 @@ module.exports = {
   deleteInventoryItem,
   transferToBarn,
   produceFeed,
+  getPendingMovements,
 };

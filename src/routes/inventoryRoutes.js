@@ -10,7 +10,8 @@ const {
   deleteInventoryItem,
   transferToBarn,
   confirmInventoryMovement,
-  produceFeed
+  produceFeed,
+  getPendingMovements,
 } = require('../controllers/inventoryController');
 
 const { protect } = require('../middlewares/authMiddleware');
@@ -32,5 +33,6 @@ router.delete('/items/:id', authorize('OWNER'), checkSubscription, deleteInvento
 router.post('/transfer-to-barn', authorize('OWNER', 'SUPERVISOR'), checkSubscription, transferToBarn);
 router.put('/movements/:id/confirm', authorize('OWNER', 'SUPERVISOR'), checkSubscription, confirmInventoryMovement);
 router.post('/produce-feed', authorize('OWNER', 'SUPERVISOR'), checkSubscription, produceFeed);
+router.get('/farms/:farm_id/movements/pending', authorize('OWNER', 'SUPERVISOR'), checkSubscription, getPendingMovements);
 
 module.exports = router;

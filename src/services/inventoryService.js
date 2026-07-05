@@ -259,6 +259,22 @@ class InventoryService {
 
     return true;
   }
+
+  /**
+   * جلب الشحنات المعلقة (في الطريق) للمزرعة
+   */
+  async getPendingMovements(farmId, orgId) {
+    const movements = await InventoryMovement.find({
+      farm_id: farmId,
+      organization_id: orgId,
+      status: 'PENDING',
+    })
+      .populate('item_id', 'name category unit') // نجلب بيانات الصنف لنعرض اسمه ووحدته
+      .sort({ createdAt: -1 })
+      .lean();
+      
+    return movements;
+  }
 }
 
 module.exports = new InventoryService();
