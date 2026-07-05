@@ -71,7 +71,7 @@ class InventoryService {
     }
   }
 
-  async produceFeed(data, orgId, userId) {
+async produceFeed(data, userId, orgId) { // لاحظ ترتيب userId و orgId
     const { farm_id, item_id, quantity, unit_cost, cycle_id, direct_to_barn } = data;
 
     // 1. تسجيل الإنتاج لدخوله المخزن وحساب التكلفة
@@ -84,13 +84,12 @@ class InventoryService {
 
     // 2. السحب الفوري للعنبر إذا اختار المشرف ذلك (Atomic Operation)
     if (direct_to_barn && cycle_id) {
-      await this.recordMovement({
+      await this.transferToBarnCustody({
         local_id: `TRANS_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-        farm_id, item_id, movement_type: 'BARN_TRANSFER', quantity,
-        unit_cost_at_time: unit_cost, movement_date: new Date(), cycle_id, status: 'COMPLETED',
-        reference_doc: 'استهلاك فوري من المدشة للعنبر'
+        farm_id, item_id, cycle_id, quantity
       }, userId, orgId);
     }
+    
     return prodResult;
   }
 
