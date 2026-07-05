@@ -21,12 +21,7 @@ const createBulkDailyLogs = asyncHandler(async (req, res, next) => {
     return next(new AppError('المزرعة غير محددة', 400));
   }
 
-  const result = await dailyLogService.createBulkDailyLogs(
-    logs,
-    req.user._id,
-    farmId,
-    orgId
-  );
+  const result = await dailyLogService.createBulkDailyLogs(logs, req.user._id, farmId, orgId);
 
   // إشعارات الإدخال المجمع
   try {
@@ -41,10 +36,12 @@ const createBulkDailyLogs = asyncHandler(async (req, res, next) => {
       });
     }
 
-    if (result.totalDeadAlertCount > 10) {
+    //  تنبيه النافق مخصص لكل عنبر على حدة
+    if (result.highMortalityAlerts && result.highMortalityAlerts.length > 0) {
+      const alertDetails = result.highMortalityAlerts.map(a => `${a.barn_name} (${a.dead_count} نافق)`).join('، ');
       await notificationController.sendAppNotification({
         title: '🚨 تنبيه طارئ: نافق غير طبيعي',
-        message: `عاجل: إجمالي النافق المسجل في يوميات اليوم بلغ (${result.totalDeadAlertCount}) طيور بواسطة ${req.user.name}.`,
+        message: `تم تسجيل نافق مرتفع في العنابر التالية: ${alertDetails}.`,
         type: 'HIGH_MORTALITY',
         target_role: 'OWNER',
         organization_id: orgId,

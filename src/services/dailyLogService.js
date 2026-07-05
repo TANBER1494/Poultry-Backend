@@ -8,7 +8,7 @@ const AppError = require('../utils/AppError');
 class DailyLogService {
   
   //  الدالة الجديدة كلياً: الإدخال المجمع (Bulk Entry)
-  async createBulkDailyLogs(logsArray, userId, farmId, orgId) {
+async createBulkDailyLogs(logsArray, userId, farmId, orgId) {
     if (!logsArray || !Array.isArray(logsArray) || logsArray.length === 0) {
       throw new AppError('لا توجد بيانات لتسجيلها', 400);
     }
@@ -18,30 +18,35 @@ class DailyLogService {
 
     try {
       const createdLogs = [];
-      let totalDeadAlertCount = 0; // لحساب إجمالي النافق للإشعارات
+      const highMortalityAlerts = []; 
 
-      // معالجة كل يومية لعنبر بالترتيب
       for (const data of logsArray) {
         const {
-          local_id, barn_id, cycle_id, log_date, age_in_days, mortality_count, culled_count,
+          local_id, barn_id, barn_name, cycle_id, log_date, age_in_days, mortality_count, culled_count,
           feed_item_id, feed_consumed_bags, egg_trays_produced, consumed_medications, notes
         } = data;
 
         const normalizedLogDate = new Date(log_date);
         normalizedLogDate.setUTCHours(0, 0, 0, 0);
 
-        // تخطي إذا كانت مسجلة مسبقاً
+        //  الرفض القاطع لأي يومية مكررة في نفس التاريخ لنفس العنبر
         const existingLog = await DailyLog.findOne({ cycle_id, log_date: normalizedLogDate }).session(session);
-        if (existingLog) continue; 
+        if (existingLog) {
+          throw new AppError(`يوجد يومية مسجلة بالفعل لعنبر (${barn_name}) في هذا التاريخ، لا يمكن تكرار التسجيل.`, 400);
+        }
 
         const cycle = await Cycle.findOne({ _id: cycle_id, organization_id: orgId, status: 'ACTIVE' }).session(session);
-        if (!cycle) throw new AppError(`الدورة غير نشطة للعنبر المحدد`, 400);
+        if (!cycle) throw new AppError(`الدورة غير نشطة لعنبر (${barn_name})`, 400);
 
         const totalDeadBirds = (Number(mortality_count) || 0) + (Number(culled_count) || 0);
-        totalDeadAlertCount += totalDeadBirds;
+        
+        //  التقاط العنبر المحدد إذا تخطى النافق 10
+        if (totalDeadBirds > 10) {
+          highMortalityAlerts.push({ barn_name, dead_count: totalDeadBirds });
+        }
 
         if (cycle.current_bird_count < totalDeadBirds) {
-          throw new AppError(`النافق يتجاوز العدد الحي في عنبر (${cycle.barn_id})`, 400);
+          throw new AppError(`النافق يتجاوز العدد الحي في عنبر (${barn_name})`, 400);
         }
 
         if (totalDeadBirds > 0) {
@@ -49,7 +54,7 @@ class DailyLogService {
           cycle.total_dead_birds = (cycle.total_dead_birds || 0) + totalDeadBirds;
         }
 
-        // --- 1. معالجة سحب العلف من عهدة العنبر ---
+        // --- 1. معالجة سحب العلف ---
         const bagsCount = Number(feed_consumed_bags) || 0;
         if (feed_item_id && bagsCount > 0) {
           const feedItemMeta = await InventoryItem.findOne({ _id: feed_item_id }).session(session);
@@ -57,7 +62,7 @@ class DailyLogService {
 
           const custodyIndex = cycle.feed_custody.findIndex(c => c.item_id.toString() === feed_item_id.toString());
           if (custodyIndex === -1 || cycle.feed_custody[custodyIndex].quantity < bagsCount) {
-            throw new AppError(`عفواً، عهدة العلف لا تكفي في العنبر، يرجى صرف عهدة أولاً.`, 400);
+            throw new AppError(`عفواً، عهدة العلف لا تكفي في عنبر (${barn_name})، يرجى صرف عهدة أولاً.`, 400);
           }
 
           cycle.feed_custody[custodyIndex].quantity -= bagsCount;
@@ -72,29 +77,32 @@ class DailyLogService {
           }], { session });
         }
 
-        // --- 2.  معالجة سحب الأدوية من المخزن الرئيسي مباشرة ---
+        // --- 2.  الخصم الجبري للأدوية والمستلزمات ---
         const processedMedications = [];
         if (consumed_medications && Array.isArray(consumed_medications)) {
           for (const med of consumed_medications) {
             const medQty = Number(med.quantity) || 0;
             if (!med.item_id || medQty <= 0) continue;
 
-            const invItem = await InventoryItem.findOne({ _id: med.item_id, farm_id: farmId, organization_id: orgId }).session(session);
-            if (!invItem) throw new AppError(`الصنف الطبي غير موجود`, 404);
-            if (invItem.stock_quantity < medQty) throw new AppError(`الرصيد لا يكفي من (${invItem.name}) في المخزن الرئيسي`, 400);
+            //  خصم مباشر من الداتا بيز لتجنب أخطاء التزامن (Race Conditions)
+            const invItem = await InventoryItem.findOneAndUpdate(
+              { _id: med.item_id, farm_id: farmId, organization_id: orgId, stock_quantity: { $gte: medQty } },
+              { $inc: { stock_quantity: -medQty } },
+              { new: true, session }
+            );
 
-            // الخصم من المخزن الرئيسي
-            invItem.stock_quantity -= medQty;
-            await invItem.save({ session });
+            if (!invItem) {
+              throw new AppError(`الرصيد لا يكفي في المخزن الرئيسي للدواء المختار لعنبر (${barn_name})`, 400);
+            }
 
             const medExpense = medQty * (invItem.average_unit_cost || 0);
-            cycle.total_expenses += medExpense; // تحميل التكلفة على الدورة
+            cycle.total_expenses += medExpense;
 
             await InventoryMovement.create([{
               local_id: `${local_id}_MED_${med.item_id}_${Date.now()}`, organization_id: orgId, farm_id: farmId,
               item_id: med.item_id, cycle_id: cycle_id, performed_by: userId, movement_type: 'CONSUMPTION', quantity: medQty,
               unit_cost_at_time: invItem.average_unit_cost, total_value: medExpense, movement_date: normalizedLogDate,
-              reference_doc: `صرف أدوية من المخزن الرئيسي (يومية مجمعة)`
+              reference_doc: `صرف أدوية من المخزن الرئيسي لعنبر (${barn_name})`
             }], { session });
 
             processedMedications.push({ item_id: invItem._id, name: invItem.name, quantity: medQty });
@@ -145,7 +153,7 @@ class DailyLogService {
       }
 
       await session.commitTransaction();
-      return { logs: createdLogs, totalDeadAlertCount };
+      return { logs: createdLogs, highMortalityAlerts };
     } catch (error) {
       await session.abortTransaction();
       throw error;
